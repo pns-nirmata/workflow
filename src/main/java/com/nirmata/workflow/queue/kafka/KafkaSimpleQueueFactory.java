@@ -13,33 +13,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.nirmata.workflow.queue.zookeeper;
+package com.nirmata.workflow.queue.kafka;
 
 import com.nirmata.workflow.WorkflowManager;
-import com.nirmata.workflow.details.WorkflowManagerImpl;
+import com.nirmata.workflow.details.WorkflowManagerKafkaImpl;
 import com.nirmata.workflow.models.TaskType;
 import com.nirmata.workflow.queue.Queue;
 import com.nirmata.workflow.queue.QueueConsumer;
 import com.nirmata.workflow.queue.QueueFactory;
 import com.nirmata.workflow.queue.TaskRunner;
 
-public class ZooKeeperSimpleQueueFactory implements QueueFactory {
+public class KafkaSimpleQueueFactory implements QueueFactory {
 
     @Override
     public Queue createQueue(WorkflowManager workflowManager, TaskType taskType) {
-        return internalCreateQueue((WorkflowManagerImpl) workflowManager, taskType, null);
+        return internalCreateQueue((WorkflowManagerKafkaImpl) workflowManager, taskType, null);
     }
 
     @Override
     public QueueConsumer createQueueConsumer(WorkflowManager workflowManager, TaskRunner taskRunner,
             TaskType taskType) {
-        ZooKeeperSimpleQueue queue = internalCreateQueue((WorkflowManagerImpl) workflowManager, taskType, taskRunner);
+        KafkaSimpleQueue queue = internalCreateQueue((WorkflowManagerKafkaImpl) workflowManager, taskType, taskRunner);
         return queue.getQueue();
     }
 
-    private ZooKeeperSimpleQueue internalCreateQueue(WorkflowManagerImpl workflowManager, TaskType taskType,
+    private KafkaSimpleQueue internalCreateQueue(WorkflowManagerKafkaImpl workflowManager, TaskType taskType,
             TaskRunner taskRunner) {
-        return new ZooKeeperSimpleQueue(taskRunner, workflowManager.getSerializer(), workflowManager.getCurator(),
+        return new KafkaSimpleQueue(taskRunner, workflowManager.getSerializer(), workflowManager.getKafkaConf(),
                 taskType);
     }
 }
