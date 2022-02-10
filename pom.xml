@@ -163,8 +163,8 @@
 
         <dependency>
             <groupId>org.mongodb</groupId>
-            <artifactId>mongodb-driver-async</artifactId>
-            <version>3.0.4</version>
+            <artifactId>mongodb-driver-sync</artifactId>
+            <version>4.4.2</version>
         </dependency>
         
     </dependencies>

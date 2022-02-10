@@ -247,8 +247,20 @@ class JsonSerializer {
         TaskExecutionResult res = (msgType == WorkflowMessage.MsgType.TASKRESULT)
                 ? getTaskExecutionResult(node.get("taskExecResult"))
                 : null;
-        return (msgType == WorkflowMessage.MsgType.TASK) ? new WorkflowMessage(rt, isRetry)
-                : new WorkflowMessage(taskId, res);
+
+        WorkflowMessage msg;
+        switch (msgType) {
+            case TASK:
+                msg = new WorkflowMessage(rt, isRetry);
+                break;
+            case TASKRESULT:
+                msg = new WorkflowMessage(taskId, res);
+                break;
+            default:
+                msg = new WorkflowMessage(msgType);
+                break;
+        }
+        return msg;
     }
 
     static JsonNode newRunnableTask(RunnableTask runnableTask) {

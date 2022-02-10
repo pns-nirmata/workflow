@@ -18,13 +18,17 @@ package com.nirmata.workflow.details;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Sets;
 import com.nirmata.workflow.admin.WorkflowManagerState;
+import com.nirmata.workflow.details.internalmodels.RunDetails;
 import com.nirmata.workflow.details.internalmodels.RunnableTask;
+import com.nirmata.workflow.details.internalmodels.StartedTask;
 import com.nirmata.workflow.details.internalmodels.WorkflowMessage;
 import com.nirmata.workflow.models.ExecutableTask;
 import com.nirmata.workflow.models.RunId;
 import com.nirmata.workflow.models.TaskExecutionResult;
 import com.nirmata.workflow.models.TaskId;
 import com.nirmata.workflow.models.TaskType;
+import com.nirmata.workflow.storage.StorageManager;
+
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -36,7 +40,10 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.time.Clock;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -51,6 +58,7 @@ class SchedulerKafka implements Runnable {
 
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final WorkflowManagerKafkaImpl workflowManager;
+    private final StorageManager storageMgr;
     private final AutoCleanerHolder autoCleanerHolder;
     private Map<TaskType, Producer<String, byte[]>> taskQueues = new HashMap<TaskType, Producer<String, byte[]>>();
     private final Consumer<String, byte[]> workflowConsumer;
@@ -68,6 +76,7 @@ class SchedulerKafka implements Runnable {
     SchedulerKafka(WorkflowManagerKafkaImpl workflowManager,
             AutoCleanerHolder autoCleanerHolder) {
         this.workflowManager = workflowManager;
+        this.storageMgr = workflowManager.getStorageManager();
         this.autoCleanerHolder = autoCleanerHolder;
 
         workflowManager.getKafkaConf().createWorkflowTopicIfNeeded();
@@ -92,7 +101,11 @@ class SchedulerKafka implements Runnable {
             ConsumerRecords<String, byte[]> records = workflowConsumer.poll(Duration.ofSeconds(1));
             if (records.count() > 0) {
                 state.set(WorkflowManagerState.State.PROCESSING);
+            } else {
+                continue;
             }
+
+            // TODO PNS: Incorporate fairness here somehow??
 
             for (ConsumerRecord<String, byte[]> record : records) {
                 log.debug("Received message : from partition {} (key: {}) at offset {}",
@@ -109,22 +122,22 @@ class SchedulerKafka implements Runnable {
 
                         runsCache.put(runId.getId(), msg.getRunnableTask().get());
                     } else {
-                        // TODO PNS: Someone retrying this workflow. Perhaps some old workflow run died
-                        // Get info of executed tasks from DB
+                        // Someone retrying this workflow. Perhaps some old workflow run died
+                        populateInternalCache(storageMgr.getRunDetails(runId));
                     }
                 } else {
-                    if (runsCache.containsKey(runId.getId())) {
+                    if (!runsCache.containsKey(runId.getId())) {
                         completedTasksCache.get(runId.getId()).put(msg.getTaskId().get().getId(),
                                 msg.getTaskExecResult().get());
                         startedTasksCache.get(runId.getId()).remove(msg.getTaskId().get().getId());
                     } else {
-                        // TODO PNS: A task result was received for run that I don't have
+                        // A task result was received for run that I don't have
                         // Mostly some partition reassignment. Get the runInfo from DB again
                         // Or wait for someone to resubmit the job
                         log.warn(
                                 "Got result, but no runId for {}. Repartition due to failure or residual in Kafka to to late autocommit?",
                                 runId.getId());
-                        continue;
+                        populateInternalCache(storageMgr.getRunDetails(runId));
                     }
 
                 }
@@ -136,6 +149,13 @@ class SchedulerKafka implements Runnable {
             }
         }
 
+    }
+
+    private void populateInternalCache(RunDetails runDetails) {
+        if (runDetails == null) {
+            return;
+        }
+        // TODO PNS: Populate internal caches with RunnableTask, and Execution results
     }
 
     private boolean hasCanceledTasks(RunId runId, RunnableTask runnableTask) {
@@ -155,7 +175,7 @@ class SchedulerKafka implements Runnable {
         startedTasksCache.remove(runId.getId());
         completedTasksCache.remove(runId.getId());
 
-        // TODO PNS: No Zkp, update record in Mongo
+        storageMgr.markComplete(runId);
     }
 
     private void updateTasks(RunId runId) {
@@ -208,10 +228,12 @@ class SchedulerKafka implements Runnable {
 
     private void queueTask(RunId runId, ExecutableTask task) {
         try {
-            // TODO PNS: Set task started status in DB later.
-            // StartedTask startedTask = new StartedTask(workflowManager.getInstanceName(),
-            // LocalDateTime.now(Clock.systemUTC()), 0);
-            // byte[] data = workflowManager.getSerializer().serialize(startedTask);
+            // TODO PNS: Incorporate delayed tasks here somehow??.
+
+            StartedTask startedTask = new StartedTask(workflowManager.getInstanceName(),
+                    LocalDateTime.now(Clock.systemUTC()), 0);
+            storageMgr.setStartedTask(runId, task.getTaskId(), startedTask);
+
             byte[] runnableTaskBytes = workflowManager.getSerializer().serialize(task);
             Producer<String, byte[]> producer = taskQueues.get(task.getTaskType());
             if (producer == null) {

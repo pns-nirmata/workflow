@@ -18,6 +18,7 @@ package com.nirmata.workflow;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.MoreExecutors;
+import com.mongodb.client.MongoClient;
 import com.nirmata.workflow.admin.AutoCleaner;
 import com.nirmata.workflow.details.AutoCleanerHolder;
 import com.nirmata.workflow.details.KafkaHelper;
@@ -29,6 +30,8 @@ import com.nirmata.workflow.queue.QueueFactory;
 import com.nirmata.workflow.queue.kafka.KafkaSimpleQueueFactory;
 import com.nirmata.workflow.serialization.Serializer;
 import com.nirmata.workflow.serialization.StandardSerializer;
+import com.nirmata.workflow.storage.StorageManager;
+import com.nirmata.workflow.storage.StorageManagerNoOpImpl;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -47,6 +50,7 @@ public class WorkflowManagerKafkaBuilder {
     private AutoCleanerHolder autoCleanerHolder = newNullHolder();
     private Serializer serializer = new StandardSerializer();
     private Executor taskRunnerService = MoreExecutors.newDirectExecutorService();
+    private StorageManager storageManager = new StorageManagerNoOpImpl();
 
     private final List<TaskExecutorSpec> specs = Lists.newArrayList();
 
@@ -76,6 +80,26 @@ public class WorkflowManagerKafkaBuilder {
     public WorkflowManagerKafkaBuilder withKafka(String brokers, String namespace, String version) {
         this.kafkaHelper = new KafkaHelper(brokers, namespace, version);
 
+        return this;
+    }
+
+    /**
+     * Set the MongoDB client to use. In addition
+     * to it, specify a namespace for the workflow and a version.
+     * The namespace
+     * and version combine to create a unique workflow. All instances using the same
+     * namespace and version
+     * are logically part of the same workflow.
+     *
+     * @param mongoUri  MongoDB connection string
+     * @param namespace workflow namespace
+     * @param version   workflow version
+     * @return this (for chaining)
+     */
+    public WorkflowManagerKafkaBuilder withMongo(String connStr, String namespace, String version) {
+        // TODO PNS: Ensure mongo driver compatibility with DB version we use
+        // TODO PNS: Create Mongo storage manager
+        // this.storageManager = new StorageManagerMongoImpl();
         return this;
     }
 
@@ -165,7 +189,8 @@ public class WorkflowManagerKafkaBuilder {
      * @return new WorkflowManager
      */
     public WorkflowManager build() {
-        return new WorkflowManagerKafkaImpl(kafkaHelper, workflowWorkerEnabled, queueFactory, instanceName, specs,
+        return new WorkflowManagerKafkaImpl(kafkaHelper, storageManager, workflowWorkerEnabled, queueFactory,
+                instanceName, specs,
                 autoCleanerHolder, serializer,
                 taskRunnerService);
     }

@@ -18,21 +18,26 @@ package com.nirmata.workflow.details.internalmodels;
 import java.io.Serializable;
 import java.util.Optional;
 
+import com.nirmata.workflow.models.RunId;
 import com.nirmata.workflow.models.TaskExecutionResult;
 import com.nirmata.workflow.models.TaskId;
 
 public class WorkflowMessage implements Serializable {
 
     public enum MsgType {
-        TASK, TASKRESULT
+        TASK, TASKRESULT, CANCEL
     };
 
     private final MsgType msgType;
-    private final boolean isRetry;
+    private boolean isRetry = false;
 
-    private final Optional<RunnableTask> runnableTask;
-    private final Optional<TaskId> taskId;
-    private final Optional<TaskExecutionResult> taskExecResult;
+    private Optional<RunnableTask> runnableTask = Optional.ofNullable(null);
+    private Optional<TaskId> taskId = Optional.ofNullable(null);
+    private Optional<TaskExecutionResult> taskExecResult = Optional.ofNullable(null);
+
+    public WorkflowMessage(MsgType type) {
+        this.msgType = type;
+    }
 
     public WorkflowMessage(RunnableTask rt) {
         this(rt, false);
@@ -42,14 +47,10 @@ public class WorkflowMessage implements Serializable {
         this.msgType = MsgType.TASK;
         this.isRetry = isRetry;
         this.runnableTask = Optional.ofNullable(rt);
-        this.taskId = Optional.ofNullable(null);
-        this.taskExecResult = Optional.ofNullable(null);
     }
 
     public WorkflowMessage(TaskId taskId, TaskExecutionResult res) {
         this.msgType = MsgType.TASKRESULT;
-        this.isRetry = false;
-        this.runnableTask = Optional.ofNullable(null);
         this.taskId = Optional.ofNullable(taskId);
         this.taskExecResult = Optional.ofNullable(res);
     }

@@ -41,6 +41,7 @@ import com.nirmata.workflow.models.TaskType;
 import com.nirmata.workflow.queue.QueueConsumer;
 import com.nirmata.workflow.queue.QueueFactory;
 import com.nirmata.workflow.serialization.Serializer;
+import com.nirmata.workflow.storage.StorageManager;
 
 import org.apache.curator.utils.CloseableUtils;
 import org.apache.kafka.clients.producer.Callback;
@@ -68,10 +69,10 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final String instanceName;
     private final List<QueueConsumer> consumers;
-    private KafkaHelper kafkaHelper;
+    private final KafkaHelper kafkaHelper;
+    private final StorageManager storageMgr;
     private final boolean workflowWorkerEnabled;
     Producer<String, byte[]> wflowProducer;
-    Producer<String, byte[]> execResultProducer;
 
     private final SchedulerSelectorKafka schedulerSelector;
     private final AtomicReference<State> state = new AtomicReference<>(State.LATENT);
@@ -86,7 +87,8 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
         CLOSED
     }
 
-    public WorkflowManagerKafkaImpl(KafkaHelper kafkaConf, boolean workflowWorkerEnabled, QueueFactory queueFactory,
+    public WorkflowManagerKafkaImpl(KafkaHelper kafkaConf, StorageManager storageMgr,
+            boolean workflowWorkerEnabled, QueueFactory queueFactory,
             String instanceName, List<TaskExecutorSpec> specs, AutoCleanerHolder autoCleanerHolder,
             Serializer serializer, Executor taskRunnerService) {
         this.taskRunnerService = Preconditions.checkNotNull(taskRunnerService, "taskRunnerService cannot be null");
@@ -94,9 +96,9 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
         autoCleanerHolder = Preconditions.checkNotNull(autoCleanerHolder, "autoCleanerHolder cannot be null");
 
         this.kafkaHelper = Preconditions.checkNotNull(kafkaConf, "kafka props cannot be null");
+        this.storageMgr = Preconditions.checkNotNull(storageMgr, "storage manager cannot be null");
         this.workflowWorkerEnabled = workflowWorkerEnabled;
         wflowProducer = new KafkaProducer<String, byte[]>(this.kafkaHelper.getProducerProps());
-        execResultProducer = new KafkaProducer<String, byte[]>(this.kafkaHelper.getProducerProps());
 
         queueFactory = Preconditions.checkNotNull(queueFactory, "queueFactory cannot be null");
         this.instanceName = Preconditions.checkNotNull(instanceName, "instanceName cannot be null");
@@ -108,6 +110,10 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
 
     public KafkaHelper getKafkaConf() {
         return this.kafkaHelper;
+    }
+
+    public StorageManager getStorageManager() {
+        return this.storageMgr;
     }
 
     @VisibleForTesting
@@ -133,7 +139,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
 
     @Override
     public WorkflowListenerManager newWorkflowListenerManager() {
-        // TODO PNS: Unsupported right now. Provide support for Kafka workflow listener.
+        // TODO PNS: Unsupported for now. Provide support for Kafka workflow listener.
         // Currently this interface is not used by any client service.
         // The Kafka workflow can write status of completed runs to a Kafka topic
         // called completed runs and this listener implementation would involve
@@ -144,9 +150,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
 
     @Override
     public Map<TaskId, TaskDetails> getTaskDetails(RunId runId) {
-        // TODO PNS: Dummy return for now. Need to get from DB
-        // See equivalent function in Zkp impl
-        return new HashMap<TaskId, TaskDetails>();
+        return this.storageMgr.getTaskDetails(runId);
     }
 
     @Override
@@ -186,19 +190,20 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
             debugLastSubmittedTimeMs = System.currentTimeMillis();
             sendWorkflowToKafka(runId, runnableTaskBytes);
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            log.error("Could not submit workflow for runId {} to Kafka", runId, e);
+            throw e;
         }
 
         return runId;
     }
 
     // Put the workflow dag in Kafka
-    private void sendWorkflowToKafka(RunId runId, byte[] runnableTaskBytes) {
+    private void sendWorkflowToKafka(RunId runId, byte[] workflowMsgBytes) {
         wflowProducer.send(
                 new ProducerRecord<String, byte[]>(
                         kafkaHelper.getWorkflowTopic(),
                         runId.getId(),
-                        runnableTaskBytes),
+                        workflowMsgBytes),
                 new Callback() {
                     @Override
                     public void onCompletion(RecordMetadata m, Exception e) {
@@ -217,22 +222,27 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
     public void updateTaskProgress(RunId runId, TaskId taskId, int progress) {
         Preconditions.checkArgument((progress >= 0) && (progress <= 100), "progress must be between 0 and 100");
 
-        // TODO PNS: Update task progress. See equivalent Zkp implementation
+        this.storageMgr.updateTaskProgress(runId, taskId, progress);
     }
 
     @Override
     public boolean cancelRun(RunId runId) {
         log.info("Attempting to cancel run " + runId);
 
-        // TODO PNS: Send kafka message to scheduler to complete runnable task, new
-        // message type
+        byte[] bytes = serializer.serialize(new WorkflowMessage(WorkflowMessage.MsgType.CANCEL));
+        try {
+            sendWorkflowToKafka(runId, bytes);
+        } catch (Exception e) {
+            log.error("Could not cancel workflow {}", runId, e);
+            return false;
+        }
+
         return true;
     }
 
     @Override
     public Optional<TaskExecutionResult> getTaskExecutionResult(RunId runId, TaskId taskId) {
-        // TODO PNS: Get task execution result from DB
-        return Optional.empty();
+        return storageMgr.getTaskExecutionResult(runId, taskId);
     }
 
     public String getInstanceName() {
@@ -268,38 +278,27 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
 
     @Override
     public boolean clean(RunId runId) {
-        // PNS TODO: Clean up from DB, see Zkp implementation
-        return true;
+        return storageMgr.clean(runId);
     }
 
     @Override
     public RunInfo getRunInfo(RunId runId) {
-        // PNS TODO: Get run info from DB. Implement
-        throw new UnsupportedOperationException("Not implemented yet");
+        return storageMgr.getRunInfo(runId);
     }
 
     @Override
     public List<RunId> getRunIds() {
-        // PNS TODO: Get run Ids from DB. Implement.
-        // Zkp could not get particular ID, hence needed all.
-        // Instead of getRunIds and iterating, one can call getRunId(id)
-        return Collections.emptyList();
+        return storageMgr.getRunIds();
     }
 
     @Override
     public List<RunInfo> getRunInfo() {
-        // PNS TODO: Get run info from DB. Implement.
-        // Just like getRunIds above, better to call getRunInfo for a given Id
-        // since DB supports it.
-        return Collections.emptyList();
+        return storageMgr.getRunInfo();
     }
 
     @Override
     public List<TaskInfo> getTaskInfo(RunId runId) {
-        // PNS TODO: Get run info from DB. Implement.
-        // Just like getRunIds above, better to call getRunInfo for a given Id
-        // since DB supports it.
-        return Collections.emptyList();
+        return storageMgr.getTaskInfo(runId);
     }
 
     public Serializer getSerializer() {
@@ -311,8 +310,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
         return schedulerSelector;
     }
 
-    private void executeTask(TaskExecutor taskExecutor, ExecutableTask executableTask,
-            Producer<String, byte[]> taskResultProducer) {
+    private void executeTask(TaskExecutor taskExecutor, ExecutableTask executableTask) {
         if (state.get() != State.STARTED) {
             return;
         }
@@ -338,29 +336,12 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
         }
         byte[] bytes = serializer.serialize(new WorkflowMessage(executableTask.getTaskId(), result));
         try {
-            taskResultProducer.send(
-                    new ProducerRecord<String, byte[]>(
-                            kafkaHelper.getWorkflowTopic(),
-                            executableTask.getRunId().getId(),
-                            bytes),
-                    new Callback() {
-                        @Override
-                        public void onCompletion(RecordMetadata m, Exception e) {
-                            if (e != null) {
-                                log.error("Error creating record for Run {} to topic {}", executableTask.getRunId(),
-                                        kafkaHelper.getWorkflowTopic(), e);
-                            } else {
-                                log.debug("RunId {} produced record to result topic {}, partition [{}] @ offset {}",
-                                        executableTask.getRunId(),
-                                        m.topic(), m.partition(), m.offset());
-                            }
-                        }
-                    });
-            // TODO PNS: Also record to DB. Send async save call
+            sendWorkflowToKafka(executableTask.getRunId(), bytes);
+            storageMgr.saveTaskResult(executableTask.getRunId(), result);
 
         } catch (Exception e) {
-            log.error("Could not set completed data for executable task: " + executableTask, e);
-            throw new RuntimeException(e);
+            log.error("Could not set completed data for executable task: {}", executableTask, e);
+            throw e;
         }
     }
 
@@ -369,7 +350,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
         specs.forEach(spec -> IntStream.range(0, spec.getQty()).forEach(i -> {
 
             QueueConsumer consumer = queueFactory.createQueueConsumer(this,
-                    t -> executeTask(spec.getTaskExecutor(), t, this.execResultProducer),
+                    t -> executeTask(spec.getTaskExecutor(), t),
                     spec.getTaskType());
             builder.add(consumer);
         }));
