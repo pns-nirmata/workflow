@@ -44,7 +44,7 @@ public class SchedulerSelectorKafka implements Closeable {
     }
 
     public void start() {
-        // Zookeeper implementation needs to do leader selection. Not needed in Kafka.
+        // Zkp implementation needs to do leader selection. Not needed in Kafka.
         // Only one or few workflow runners need to be present based on partitions of
         // the workflow topic. All extra consumers for a workflow queue exceeding
         // partitions will be idle till someone dies.

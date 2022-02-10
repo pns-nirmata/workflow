@@ -172,7 +172,7 @@ public class WorkflowManagerKafkaBuilder {
 
     /**
      * <em>optional</em><br>
-     * Pluggable queue factory. Default uses ZooKeeper for queuing.
+     * Pluggable queue factory. Default uses Kafka for queuing.
      *
      * @param queueFactory new queue factory
      * @return this (for chaining)
@@ -200,7 +200,7 @@ public class WorkflowManagerKafkaBuilder {
 
     /**
      * <em>optional</em><br>
-     * By default, a JSON serializer is used to store data in ZooKeeper. Use this to
+     * By default, a JSON serializer is used to store data. Use this to
      * specify an alternate serializer
      *
      * @param serializer serializer to use

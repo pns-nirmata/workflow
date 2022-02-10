@@ -41,15 +41,13 @@ import com.nirmata.workflow.models.TaskType;
 import com.nirmata.workflow.queue.QueueConsumer;
 import com.nirmata.workflow.queue.QueueFactory;
 import com.nirmata.workflow.serialization.Serializer;
-import org.apache.curator.framework.CuratorFramework;
+
 import org.apache.curator.utils.CloseableUtils;
-import org.apache.curator.utils.ZKPaths;
 import org.apache.kafka.clients.producer.Callback;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
-import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.time.LocalDateTime;
@@ -58,7 +56,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.FutureTask;
@@ -69,7 +66,6 @@ import java.util.stream.IntStream;
 public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin {
 
     private final Logger log = LoggerFactory.getLogger(getClass());
-    private CuratorFramework curator;
     private final String instanceName;
     private final List<QueueConsumer> consumers;
     private KafkaHelper kafkaHelper;
@@ -108,10 +104,6 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
 
         consumers = makeTaskConsumers(queueFactory, specs);
         schedulerSelector = new SchedulerSelectorKafka(this, queueFactory, autoCleanerHolder);
-    }
-
-    public CuratorFramework getCurator() {
-        return curator;
     }
 
     public KafkaHelper getKafkaConf() {
@@ -225,20 +217,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
     public void updateTaskProgress(RunId runId, TaskId taskId, int progress) {
         Preconditions.checkArgument((progress >= 0) && (progress <= 100), "progress must be between 0 and 100");
 
-        String path = ZooKeeperConstants.getStartedTaskPath(runId, taskId);
-        try {
-            byte[] bytes = curator.getData().forPath(path);
-            StartedTask startedTask = serializer.deserialize(bytes, StartedTask.class);
-            StartedTask updatedStartedTask = new StartedTask(startedTask.getInstanceName(),
-                    startedTask.getStartDateUtc(), progress);
-            byte[] data = getSerializer().serialize(updatedStartedTask);
-            curator.setData().forPath(path, data);
-        } catch (KeeperException.NoNodeException ignore) {
-            // ignore - must have been deleted in the interim, for example before we update
-            // progress the task is completed
-        } catch (Exception e) {
-            throw new RuntimeException("Trying to read started task info from: " + path, e);
-        }
+        // TODO PNS: Update task progress. See equivalent Zkp implementation
     }
 
     @Override
@@ -252,16 +231,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
 
     @Override
     public Optional<TaskExecutionResult> getTaskExecutionResult(RunId runId, TaskId taskId) {
-        String completedTaskPath = ZooKeeperConstants.getCompletedTaskPath(runId, taskId);
-        try {
-            byte[] bytes = curator.getData().forPath(completedTaskPath);
-            TaskExecutionResult taskExecutionResult = serializer.deserialize(bytes, TaskExecutionResult.class);
-            return Optional.of(taskExecutionResult);
-        } catch (KeeperException.NoNodeException dummy) {
-            // dummy
-        } catch (Exception e) {
-            throw new RuntimeException(String.format("No data for runId %s taskId %s", runId, taskId), e);
-        }
+        // TODO PNS: Get task execution result from DB
         return Optional.empty();
     }
 
@@ -291,168 +261,45 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
     @Override
     public WorkflowManagerState getWorkflowManagerState() {
         return new WorkflowManagerState(
-                curator.getZookeeperClient().isConnected(),
+                false, // Zkp is NA. And it is not continuously connected to Kafka.
                 schedulerSelector.getState(),
                 consumers.stream().map(QueueConsumer::getState).collect(Collectors.toList()));
     }
 
     @Override
     public boolean clean(RunId runId) {
-        String runPath = ZooKeeperConstants.getRunPath(runId);
-        try {
-            byte[] bytes = curator.getData().forPath(runPath);
-            RunnableTask runnableTask = serializer.deserialize(bytes, RunnableTask.class);
-            runnableTask.getTasks().keySet().forEach(taskId -> {
-                String startedTaskPath = ZooKeeperConstants.getStartedTaskPath(runId, taskId);
-                try {
-                    curator.delete().forPath(startedTaskPath);
-                } catch (KeeperException.NoNodeException ignore) {
-                    // ignore
-                } catch (Exception e) {
-                    throw new RuntimeException("Could not delete started task at: " + startedTaskPath, e);
-                }
-
-                String completedTaskPath = ZooKeeperConstants.getCompletedTaskPath(runId, taskId);
-                try {
-                    curator.delete().forPath(completedTaskPath);
-                } catch (KeeperException.NoNodeException ignore) {
-                    // ignore
-                } catch (Exception e) {
-                    throw new RuntimeException("Could not delete completed task at: " + completedTaskPath, e);
-                }
-            });
-
-            try {
-                curator.delete().forPath(runPath);
-            } catch (Exception e) {
-                // at this point, the node should exist
-                throw new RuntimeException(e);
-            }
-
-            return true;
-        } catch (KeeperException.NoNodeException dummy) {
-            return false;
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        }
+        // PNS TODO: Clean up from DB, see Zkp implementation
+        return true;
     }
 
     @Override
     public RunInfo getRunInfo(RunId runId) {
-        try {
-            String runPath = ZooKeeperConstants.getRunPath(runId);
-            byte[] bytes = curator.getData().forPath(runPath);
-            RunnableTask runnableTask = serializer.deserialize(bytes, RunnableTask.class);
-            return new RunInfo(runId, runnableTask.getStartTimeUtc(), runnableTask.getCompletionTimeUtc().orElse(null));
-        } catch (Exception e) {
-            log.error("Error getting RunInfo for runId: {}", runId, e);
-            throw new RuntimeException("Could not read run: " + runId, e);
-        }
+        // PNS TODO: Get run info from DB. Implement
+        throw new UnsupportedOperationException("Not implemented yet");
     }
 
     @Override
     public List<RunId> getRunIds() {
-        try {
-            String runParentPath = ZooKeeperConstants.getRunParentPath();
-            return curator.getChildren().forPath(runParentPath).stream()
-                    .map(RunId::new)
-                    .collect(Collectors.toList());
-        } catch (KeeperException.NoNodeException ignore) {
-            // ignore if parent node is missing
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        // PNS TODO: Get run Ids from DB. Implement.
+        // Zkp could not get particular ID, hence needed all.
+        // Instead of getRunIds and iterating, one can call getRunId(id)
         return Collections.emptyList();
     }
 
     @Override
     public List<RunInfo> getRunInfo() {
-        try {
-            String runParentPath = ZooKeeperConstants.getRunParentPath();
-            return curator.getChildren().forPath(runParentPath).stream()
-                    .map(child -> {
-                        String fullPath = ZKPaths.makePath(runParentPath, child);
-                        try {
-                            RunId runId = new RunId(ZooKeeperConstants.getRunIdFromRunPath(fullPath));
-                            byte[] bytes = curator.getData().forPath(fullPath);
-                            RunnableTask runnableTask = serializer.deserialize(bytes, RunnableTask.class);
-                            return new RunInfo(runId, runnableTask.getStartTimeUtc(),
-                                    runnableTask.getCompletionTimeUtc().orElse(null));
-                        } catch (KeeperException.NoNodeException ignore) {
-                            // ignore - must have been deleted in the interim
-                        } catch (Exception e) {
-                            throw new RuntimeException("Trying to read run info from: " + fullPath, e);
-                        }
-                        return null;
-                    })
-                    .filter(info -> (info != null))
-                    .collect(Collectors.toList());
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        }
+        // PNS TODO: Get run info from DB. Implement.
+        // Just like getRunIds above, better to call getRunInfo for a given Id
+        // since DB supports it.
+        return Collections.emptyList();
     }
 
     @Override
     public List<TaskInfo> getTaskInfo(RunId runId) {
-        List<TaskInfo> taskInfos = Lists.newArrayList();
-        String startedTasksParentPath = ZooKeeperConstants.getStartedTasksParentPath();
-        String completedTaskParentPath = ZooKeeperConstants.getCompletedTaskParentPath();
-        try {
-            String runPath = ZooKeeperConstants.getRunPath(runId);
-            byte[] runBytes = curator.getData().forPath(runPath);
-            RunnableTask runnableTask = serializer.deserialize(runBytes, RunnableTask.class);
-
-            Set<TaskId> notStartedTasks = runnableTask.getTasks().values().stream().filter(ExecutableTask::isExecutable)
-                    .map(ExecutableTask::getTaskId).collect(Collectors.toSet());
-            Map<TaskId, StartedTask> startedTasks = Maps.newHashMap();
-
-            curator.getChildren().forPath(startedTasksParentPath).forEach(child -> {
-                String fullPath = ZKPaths.makePath(startedTasksParentPath, child);
-                TaskId taskId = new TaskId(ZooKeeperConstants.getTaskIdFromStartedTasksPath(fullPath));
-                try {
-                    byte[] bytes = curator.getData().forPath(fullPath);
-                    StartedTask startedTask = serializer.deserialize(bytes, StartedTask.class);
-                    startedTasks.put(taskId, startedTask);
-                    notStartedTasks.remove(taskId);
-                } catch (KeeperException.NoNodeException ignore) {
-                    // ignore - must have been deleted in the interim
-                } catch (Exception e) {
-                    throw new RuntimeException("Trying to read started task info from: " + fullPath, e);
-                }
-            });
-
-            curator.getChildren().forPath(completedTaskParentPath).forEach(child -> {
-                String fullPath = ZKPaths.makePath(completedTaskParentPath, child);
-                TaskId taskId = new TaskId(ZooKeeperConstants.getTaskIdFromCompletedTasksPath(fullPath));
-
-                StartedTask startedTask = startedTasks.remove(taskId);
-                if (startedTask != null) // otherwise it must have been deleted
-                {
-                    try {
-                        byte[] bytes = curator.getData().forPath(fullPath);
-                        TaskExecutionResult taskExecutionResult = serializer.deserialize(bytes,
-                                TaskExecutionResult.class);
-                        taskInfos.add(new TaskInfo(taskId, startedTask.getInstanceName(), startedTask.getStartDateUtc(),
-                                startedTask.getProgress(), taskExecutionResult));
-                        notStartedTasks.remove(taskId);
-                    } catch (KeeperException.NoNodeException ignore) {
-                        // ignore - must have been deleted in the interim
-                    } catch (Exception e) {
-                        throw new RuntimeException("Trying to read completed task info from: " + fullPath, e);
-                    }
-                }
-            });
-
-            // remaining started tasks have not completed
-            startedTasks.forEach((key, startedTask) -> taskInfos.add(new TaskInfo(key, startedTask.getInstanceName(),
-                    startedTask.getStartDateUtc(), startedTask.getProgress())));
-
-            // finally, taskIds not added have not started
-            notStartedTasks.forEach(taskId -> taskInfos.add(new TaskInfo(taskId)));
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        }
-        return taskInfos;
+        // PNS TODO: Get run info from DB. Implement.
+        // Just like getRunIds above, better to call getRunInfo for a given Id
+        // since DB supports it.
+        return Collections.emptyList();
     }
 
     public Serializer getSerializer() {

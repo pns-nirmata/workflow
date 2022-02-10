@@ -49,15 +49,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 @VisibleForTesting
-public class KafkaQueueConsumer implements QueueConsumer {
+public class KafkaQueueConsumer implements Closeable, QueueConsumer {
     private final Logger log = LoggerFactory.getLogger(getClass());
+    private final KafkaHelper client;
     private final Consumer<String, byte[]> consumer;
 
     private final TaskRunner taskRunner;
     private final Serializer serializer;
+    private final TaskType taskType;
+    private final boolean idempotent;
+
     // PNS TODO: Curator ThreadUtils dependency to be changed later
     private final ExecutorService executorService = ThreadUtils.newSingleThreadExecutor("KafkaQueueConsumer");
     private final AtomicBoolean started = new AtomicBoolean(false);
+    private final NodeFunc nodeFunc;
+    private final KeyFunc keyFunc;
     private final AtomicReference<WorkflowManagerState.State> state = new AtomicReference<>(
             WorkflowManagerState.State.LATENT);
 
@@ -159,7 +165,7 @@ public class KafkaQueueConsumer implements QueueConsumer {
     void put(byte[] data, long value) throws Exception {
         // TODO PNS: This queue is used only on the consumer side (executors)
         // Later use this queue in kafka scheduler too, for consistency of design.
-        // Should not be called right now. See Zookeeper queue equivalent
+        // Should not be called right now. See Zkp queue equivalent
         throw new UnsupportedOperationException("Internal error. Put side uses Kafka directly");
     }
 
