@@ -42,7 +42,9 @@ public class KafkaHelper {
     final String namespace;
     final String version;
 
-    // TODO PNS: Allow configuring these from outside later.
+    // Allow configuring these from outside if needed. In production
+    // the needed number of partitions will already be available, or reconfigured
+    // in Kafka directly from outside. Useful mainly in testing.
     final int workflowTopicPartitions;
     final int taskTypeTopicPartitions;
 

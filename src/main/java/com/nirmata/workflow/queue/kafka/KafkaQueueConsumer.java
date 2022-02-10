@@ -1,5 +1,3 @@
-package com.nirmata.workflow.queue.kafka;
-
 /**
  * Copyright 2014 Nirmata, Inc.
  *
@@ -15,6 +13,8 @@ package com.nirmata.workflow.queue.kafka;
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+package com.nirmata.workflow.queue.kafka;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -49,20 +49,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 @VisibleForTesting
-public class KafkaQueueConsumer implements Closeable, QueueConsumer {
+public class KafkaQueueConsumer implements QueueConsumer {
     private final Logger log = LoggerFactory.getLogger(getClass());
-    private final KafkaHelper client;
     private final Consumer<String, byte[]> consumer;
 
     private final TaskRunner taskRunner;
     private final Serializer serializer;
-    private final TaskType taskType;
-    private final boolean idempotent;
     // PNS TODO: Curator ThreadUtils dependency to be changed later
     private final ExecutorService executorService = ThreadUtils.newSingleThreadExecutor("KafkaQueueConsumer");
     private final AtomicBoolean started = new AtomicBoolean(false);
-    private final NodeFunc nodeFunc;
-    private final KeyFunc keyFunc;
     private final AtomicReference<WorkflowManagerState.State> state = new AtomicReference<>(
             WorkflowManagerState.State.LATENT);
 
@@ -162,10 +157,10 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
     public static volatile Semaphore debugQueuedTasks = null;
 
     void put(byte[] data, long value) throws Exception {
-        // TODO PNS: Currently, this is just on the consumer side of queue
-        // Later use this queue in kafka scheduler too, for consistency.
+        // TODO PNS: This queue is used only on the consumer side (executors)
+        // Later use this queue in kafka scheduler too, for consistency of design.
         // Should not be called right now. See Zookeeper queue equivalent
-        throw new UnsupportedOperationException();
+        throw new UnsupportedOperationException("Internal error. Put side uses Kafka directly");
     }
 
     @Override
@@ -210,9 +205,10 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
                         ExecutableTask task = serializer.deserialize(record.value(), ExecutableTask.class);
                         processNode(task);
                     }
-                    // TODO PNS: Handle priority and delays later if needed
-                    // See equivalent Zkp implementation.
-                    // ....
+                    // TODO PNS: Handle priority and delays to extent possible. See equivalent Zkp
+                    // implementation. More important is handling fairness. Handle this on the
+                    // workflow worker side where DAG is executed and tasks in DAG are submitted for
+                    // execution.
                 } catch (InterruptException | InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;

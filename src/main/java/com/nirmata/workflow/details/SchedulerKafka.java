@@ -84,8 +84,10 @@ class SchedulerKafka implements Runnable {
     }
 
     public void run() {
-        // TODO PNS: Have configurable threads for workflow workers. One is good enough
-        // in general, but should be able to parallelize this easily.
+        // One workflow run thread in a client is good enough, but we can
+        // parallelize this easily too. Also, many other clients will also offer to act
+        // as workflow workers. So parallel processing will happen anyways with multiple
+        // partitions for workflows.
         this.workflowConsumer.subscribe(Collections.singletonList(workflowManager.getKafkaConf().getWorkflowTopic()));
 
         while (true) {

@@ -141,8 +141,13 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
 
     @Override
     public WorkflowListenerManager newWorkflowListenerManager() {
-        // TODO PNS: Need to handle listener later.
-        return null; // new WorkflowListenerManagerImpl(this);
+        // TODO PNS: Unsupported right now. Provide support for Kafka workflow listener.
+        // Currently this interface is not used by any client service.
+        // The Kafka workflow can write status of completed runs to a Kafka topic
+        // called completed runs and this listener implementation would involve
+        // listening to that. Need new listener manager equivalent to
+        // WorkflowListenerManagerImpl using Zkp
+        throw new UnsupportedOperationException("Listeners on Kafka workflows not yet supported");
     }
 
     @Override

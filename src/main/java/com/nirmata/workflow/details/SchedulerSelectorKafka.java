@@ -36,9 +36,6 @@ public class SchedulerSelectorKafka implements Closeable {
             AutoCleanerHolder autoCleanerHolder) {
         this.workflowManager = workflowManager;
         this.autoCleanerHolder = autoCleanerHolder;
-
-        // TODO PNS: Implement scheduler equivalent where only one scheduler handles a
-        // bunch of workflows.
     }
 
     public WorkflowManagerState.State getState() {
@@ -47,36 +44,11 @@ public class SchedulerSelectorKafka implements Closeable {
     }
 
     public void start() {
-        // TODO PNS: Verify that taking leadership is implicit with
-        // Kafka partitioning.
+        // Zookeeper implementation needs to do leader selection. Not needed in Kafka.
         // Only one or few workflow runners need to be present based on partitions of
-        // the workflow topic.
-        // All extra consumers for a workflow queue exceeding partitions will be idle
-        // till someone dies.
-        takeLeadership();
-    }
+        // the workflow topic. All extra consumers for a workflow queue exceeding
+        // partitions will be idle till someone dies.
 
-    @Override
-    public void close() {
-        // CloseableUtils.closeQuietly(leaderSelector);
-    }
-
-    // TODO PNS: Reinstate the leader selector if needed. Mostly kafka partitioning
-    // will take care of leader selection automatically.
-    // Only one consumer per pertition per group is allowed anyways. Others are idle
-    // @VisibleForTesting
-    // LeaderSelector getLeaderSelector() {
-    // throw new UnsupportedOperationException();
-    // // return null; // leaderSelector;
-    // }
-
-    @VisibleForTesting
-    void debugValidateClosed() {
-        // TODO PNS: Implement later if needed, or remove
-        // Preconditions.checkState(!leaderSelector.hasLeadership());
-    }
-
-    private void takeLeadership() {
         log.info(workflowManager.getInstanceName() + " is now the scheduler");
         try {
             scheduler.set(new SchedulerKafka(workflowManager, autoCleanerHolder));
@@ -91,4 +63,13 @@ public class SchedulerSelectorKafka implements Closeable {
             }
         }
     }
+
+    @Override
+    public void close() {
+    }
+
+    @VisibleForTesting
+    void debugValidateClosed() {
+    }
+
 }
