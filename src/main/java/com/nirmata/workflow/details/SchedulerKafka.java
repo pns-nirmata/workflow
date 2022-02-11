@@ -126,7 +126,7 @@ class SchedulerKafka implements Runnable {
                         populateInternalCache(storageMgr.getRunDetails(runId));
                     }
                 } else {
-                    if (!runsCache.containsKey(runId.getId())) {
+                    if (runsCache.containsKey(runId.getId())) {
                         completedTasksCache.get(runId.getId()).put(msg.getTaskId().get().getId(),
                                 msg.getTaskExecResult().get());
                         startedTasksCache.get(runId.getId()).remove(msg.getTaskId().get().getId());
