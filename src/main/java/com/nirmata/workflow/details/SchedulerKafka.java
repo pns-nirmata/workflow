@@ -47,6 +47,7 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -55,6 +56,9 @@ import java.util.concurrent.atomic.AtomicReference;
 class SchedulerKafka implements Runnable {
     @VisibleForTesting
     static volatile AtomicInteger debugBadRunIdCount;
+
+    private final Duration EXPIRY_MINS = Duration.ofMinutes(120);
+    private final int MAX_SUBMITTED_CACHE_ITEMS = 10000;
 
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final WorkflowManagerKafkaImpl workflowManager;
@@ -66,6 +70,16 @@ class SchedulerKafka implements Runnable {
     private Map<String, Map<String, TaskExecutionResult>> completedTasksCache = new HashMap<String, Map<String, TaskExecutionResult>>();
     private Map<String, Set<String>> startedTasksCache = new HashMap<String, Set<String>>();
     private Map<String, RunnableTask> runsCache = new HashMap<String, RunnableTask>();
+
+    // Sufficiently large LRU cache to ensure that duplicate tasks (with same runId)
+    // are not scheduled even if scheduled multiple times within a time interval
+    // and even if MongoDB is not used as a store.
+    // The max size should be based on duplicate arrival times to be accomodated
+    private final Set<String> recentlySubmittedTasks = Collections.newSetFromMap(new LinkedHashMap<String, Boolean>() {
+        protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+            return size() > MAX_SUBMITTED_CACHE_ITEMS;
+        }
+    });
 
     private AtomicReference<WorkflowManagerState.State> state = new AtomicReference<>(
             WorkflowManagerState.State.LATENT);
@@ -117,10 +131,16 @@ class SchedulerKafka implements Runnable {
 
                 if (msg.getMsgType() == WorkflowMessage.MsgType.TASK) {
                     if (!msg.isRetry()) {
-                        completedTasksCache.put(runId.getId(), new HashMap<String, TaskExecutionResult>());
-                        startedTasksCache.put(runId.getId(), new HashSet<String>());
+                        if (!recentlySubmittedTasks.contains(runId.getId())) {
+                            completedTasksCache.put(runId.getId(), new HashMap<String, TaskExecutionResult>());
+                            startedTasksCache.put(runId.getId(), new HashSet<String>());
 
-                        runsCache.put(runId.getId(), msg.getRunnableTask().get());
+                            runsCache.put(runId.getId(), msg.getRunnableTask().get());
+                            recentlySubmittedTasks.add(runId.getId());
+                        } else {
+                            log.debug("Ignoring duplicate task submitted for run {}", runId);
+                            continue;
+                        }
                     } else {
                         // Someone retrying this workflow. Perhaps some old workflow run died
                         populateInternalCache(runId, storageMgr.getRunDetails(runId));
