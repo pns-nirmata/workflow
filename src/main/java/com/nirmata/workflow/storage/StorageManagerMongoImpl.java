@@ -42,7 +42,6 @@ import org.bson.conversions.Bson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-// PNS TODO: Implement using the existing Zkp implementation as reference.
 public class StorageManagerMongoImpl implements StorageManager {
     private static final String KAFKA_WORKFLOW_DBNAME = "kafkaworkflow";
     private static final String RUN_COLL = "runinfo";
