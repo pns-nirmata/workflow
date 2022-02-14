@@ -17,6 +17,7 @@
 package com.nirmata.workflow.storage;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -75,7 +76,7 @@ public class StorageManagerMongoImpl implements StorageManager {
         try {
             collection.insertOne(new Document()
                     .append(FLD_ID, runId.getId())
-                    .append("$currentDate", FLD_MODIFIED_TS)
+                    .append(FLD_MODIFIED_TS, new Date())
                     .append(FLD_RUNNABLE, toStr(runnableBytes)));
         } catch (Exception e) {
             // TODO PNS: Distinguish between duplicates and other errors, or have another
@@ -229,7 +230,7 @@ public class StorageManagerMongoImpl implements StorageManager {
 
     private void setField(RunId runId, String fldName, byte[] data) {
         Document query = new Document().append(FLD_ID, runId.getId());
-        Bson update = Updates.combine(Updates.set(fldName, toStr(data)), Updates.currentTimestamp(FLD_MODIFIED_TS));
+        Bson update = Updates.combine(Updates.set(fldName, toStr(data)), Updates.currentDate(FLD_MODIFIED_TS));
         try {
             UpdateResult result = collection.updateOne(query, update);
             if (result.getModifiedCount() == 0) {

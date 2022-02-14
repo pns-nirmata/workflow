@@ -53,6 +53,7 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -195,7 +196,8 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
                 .stream()
                 .collect(Collectors.toMap(Task::getTaskId, t -> new ExecutableTask(runId, t.getTaskId(),
                         t.isExecutable() ? t.getTaskType() : nullTaskType, t.getMetaData(), t.isExecutable())));
-        RunnableTask runnableTask = new RunnableTask(tasks, builder.getEntries(), LocalDateTime.now(), null,
+        RunnableTask runnableTask = new RunnableTask(tasks, builder.getEntries(), LocalDateTime.now(ZoneOffset.UTC),
+                null,
                 parentRunId);
 
         try {
@@ -443,7 +445,8 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
         byte[] bytes = serializer.serialize(new WorkflowMessage(executableTask.getTaskId(), result));
         try {
             sendWorkflowToKafka(executableTask.getRunId(), bytes);
-            storageMgr.saveTaskResult(executableTask.getRunId(), executableTask.getTaskId(), bytes);
+            storageMgr.saveTaskResult(executableTask.getRunId(), executableTask.getTaskId(),
+                    serializer.serialize(result));
 
         } catch (Exception e) {
             log.error("Could not set completed data for executable task: {}", executableTask, e);

@@ -194,7 +194,6 @@ class SchedulerKafka implements Runnable {
 
     void completeRunnableTask(Logger log, WorkflowManagerKafkaImpl workflowManager, RunId runId,
             RunnableTask runnableTask, int version) {
-        log.debug("Completing run: {}", runId);
         runsCache.remove(runId.getId());
         startedTasksCache.remove(runId.getId());
         completedTasksCache.remove(runId.getId());
