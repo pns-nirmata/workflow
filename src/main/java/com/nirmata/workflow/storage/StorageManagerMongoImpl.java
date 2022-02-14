@@ -16,89 +16,229 @@
 
 package com.nirmata.workflow.storage;
 
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
-import com.nirmata.workflow.admin.RunInfo;
-import com.nirmata.workflow.admin.TaskDetails;
-import com.nirmata.workflow.admin.TaskInfo;
-import com.nirmata.workflow.details.internalmodels.RunDetails;
-import com.nirmata.workflow.details.internalmodels.StartedTask;
+import static com.mongodb.client.model.Filters.eq;
+
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoException;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.model.Projections;
+import com.mongodb.client.model.Updates;
+import com.mongodb.client.result.DeleteResult;
+import com.mongodb.client.result.UpdateResult;
 import com.nirmata.workflow.models.RunId;
-import com.nirmata.workflow.models.TaskExecutionResult;
 import com.nirmata.workflow.models.TaskId;
+
+import org.bson.Document;
+import org.bson.conversions.Bson;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 // PNS TODO: Implement using the existing Zkp implementation as reference.
 public class StorageManagerMongoImpl implements StorageManager {
+    private static final String KAFKA_WORKFLOW_DBNAME = "kafkaworkflow";
+    private static final String RUN_COLL = "runinfo";
 
-    @Override
-    public Map<TaskId, TaskDetails> getTaskDetails(RunId runId) {
-        throw new UnsupportedOperationException("Mongo storage manager WIP");
+    private static final String FLD_ID = "_id";
+    private static final String FLD_TASKS = "tasks";
+    private static final String FLD_MODIFIED_TS = "modified";
+    private static final String FLD_RUNNABLE = "runnable";
+    private static final String FLD_STARTED_TASK = "started";
+    private static final String FLD_TASK_EXEC_RESULT = "execResult";
+
+    private final Logger log = LoggerFactory.getLogger(getClass());
+    private final MongoClient client;
+    private final MongoCollection<Document> collection;
+
+    public StorageManagerMongoImpl(String uri, String namespace, String version) {
+        try {
+            this.client = MongoClients.create(
+                    MongoClientSettings.builder().applyConnectionString(new ConnectionString(uri))
+                            .applicationName(KAFKA_WORKFLOW_DBNAME + "-" + namespace + "-" + version)
+                            .build());
+            this.collection = this.client.getDatabase(KAFKA_WORKFLOW_DBNAME).getCollection(RUN_COLL);
+        } catch (Exception e) {
+            log.error("Error connecting to Mongo with {}", uri, e);
+            throw e;
+        }
     }
 
     @Override
-    public void updateTaskProgress(RunId runId, TaskId taskId, int progress) {
-        throw new UnsupportedOperationException("Mongo storage manager WIP");
+    public void createRun(RunId runId, byte[] runnableBytes) {
+        try {
+            collection.insertOne(new Document()
+                    .append(FLD_ID, runId.getId())
+                    .append("$currentDate", FLD_MODIFIED_TS)
+                    .append(FLD_RUNNABLE, toStr(runnableBytes)));
+        } catch (Exception e) {
+            // TODO PNS: Distinguish between duplicates and other errors, or have another
+            // API for checking for existence
+            log.warn("Could not create new run with id {} ignoring, mostly duplicate", runId, e);
+        }
     }
 
     @Override
-    public Optional<TaskExecutionResult> getTaskExecutionResult(RunId runId, TaskId taskId) {
-        throw new UnsupportedOperationException("Mongo storage manager WIP");
+    public void updateRun(RunId runId, byte[] runnableBytes) {
+        setField(runId, FLD_RUNNABLE, runnableBytes);
+    }
+
+    private String toStr(byte[] bytes) {
+        // String from bytes should be ok considering that bytes are actually
+        // created by serializing our java objects to JSON. So invalid UTF chars
+        // should not be a concern
+        return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    private byte[] toBytes(String s) {
+        return s.getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Override
+    public byte[] getRunnable(RunId runId) {
+        Bson projectionFields = Projections.fields(
+                Projections.include(FLD_RUNNABLE));
+        Document doc = collection.find(eq(FLD_ID, runId.getId()))
+                .projection(projectionFields)
+                .first();
+        return toBytes(doc.getString(FLD_RUNNABLE));
+    }
+
+    @Override
+    public List<String> getRunIds() {
+        List<String> runIds = new LinkedList<String>();
+        Bson projectionFields = Projections.fields(
+                Projections.include(FLD_ID));
+        collection.find()
+                .projection(projectionFields).forEach(curr -> runIds.add(curr.getString(FLD_ID)));
+        return runIds;
+    }
+
+    @Override
+    public Map<String, byte[]> getRuns() {
+        Map<String, byte[]> runInfos = new HashMap<String, byte[]>();
+        Bson projectionFields = Projections.fields(Projections.include(FLD_RUNNABLE));
+        collection.find().projection(projectionFields)
+                .forEach(curr -> runInfos.put(curr.getString(FLD_ID), toBytes(curr.getString(FLD_RUNNABLE))));
+        return runInfos;
+    }
+
+    @Override
+    public byte[] getStartedTask(RunId runId, TaskId taskId) {
+        return getTaskField(runId, taskId, FLD_STARTED_TASK);
+    }
+
+    @Override
+    public void setStartedTask(RunId runId, TaskId taskId, byte[] startedTaskData) {
+        setTaskField(runId, taskId, FLD_STARTED_TASK, startedTaskData);
+    }
+
+    @Override
+    public RunRecord getRunDetails(RunId runId) {
+        Bson projectionFields = Projections.fields(
+                Projections.include(FLD_RUNNABLE),
+                Projections.include(FLD_TASKS));
+        Document doc = collection.find(eq(FLD_ID, runId.getId()))
+                .projection(projectionFields)
+                .first();
+
+        byte[] runnable = toBytes(doc.getString(FLD_RUNNABLE));
+
+        Map<String, byte[]> startedTasks = new HashMap<String, byte[]>();
+        Map<String, byte[]> completedTasks = new HashMap<String, byte[]>();
+
+        Map<String, Map<String, Object>> m = new HashMap<String, Map<String, Object>>();
+
+        try {
+            Map<String, Map<String, Object>> tasks = doc.get(FLD_TASKS, m.getClass());
+            if (tasks != null) {
+                for (String taskIdStr : tasks.keySet()) {
+                    if (doc.getString(tskfld(taskIdStr, FLD_STARTED_TASK)) != null) {
+                        startedTasks.put(taskIdStr, toBytes(doc.getString(tskfld(taskIdStr, FLD_STARTED_TASK))));
+                    }
+
+                    if (doc.getString(tskfld(taskIdStr, FLD_TASK_EXEC_RESULT)) != null) {
+                        completedTasks.put(taskIdStr, toBytes(doc.getString(tskfld(taskIdStr, FLD_TASK_EXEC_RESULT))));
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            log.error("Could not retrieve tasks for runId {}", runId, ex);
+        }
+
+        return new RunRecord(runnable, startedTasks, completedTasks);
+    }
+
+    @Override
+    public byte[] getTaskExecutionResult(RunId runId, TaskId taskId) {
+        return getTaskField(runId, taskId, FLD_TASK_EXEC_RESULT);
+    }
+
+    @Override
+    public void saveTaskResult(RunId runId, TaskId taskId, byte[] taskResultData) {
+        setTaskField(runId, taskId, FLD_TASK_EXEC_RESULT, taskResultData);
+
     }
 
     @Override
     public boolean clean(RunId runId) {
-        throw new UnsupportedOperationException("Mongo storage manager WIP");
+        Bson query = eq(FLD_ID, runId.getId());
+        try {
+            DeleteResult result = collection.deleteOne(query);
+            if (result.getDeletedCount() == 0) {
+                return false;
+            }
+        } catch (MongoException me) {
+            log.error("Unable to delete from mongo: ", me);
+        }
+        return true;
     }
 
-    @Override
-    public RunInfo getRunInfo(RunId runId) {
-        // PNS TODO: Get run info from DB. Implement.
-        // Better to call getRunInfo for a given Id
-        // since DB supports it.
-        throw new UnsupportedOperationException("Mongo storage manager WIP");
+    private byte[] getTaskField(RunId runId, TaskId taskId, String fldName) {
+        return getField(runId, tskfld(taskId.getId(), fldName));
     }
 
-    @Override
-    public List<RunId> getRunIds() {
-        // PNS TODO: Get run Ids from DB. Implement.
-        // Zkp could not get particular ID, hence needed all.
-        // Instead of getRunIds and iterating, one can call getRunId(id)
-        throw new UnsupportedOperationException("Mongo storage manager WIP");
+    private void setTaskField(RunId runId, TaskId taskId, String fldName, byte[] data) {
+        setField(runId, tskfld(taskId.getId(), fldName), data);
     }
 
-    @Override
-    public List<RunInfo> getRunInfo() {
-        // PNS TODO: Get run info from DB. Implement.
-        // Just like getRunIds above, better to call getRunInfo for a given Id
-        // since DB supports it.
-        throw new UnsupportedOperationException("Mongo storage manager WIP");
+    private String tskfld(String taskId, String fldName) {
+        // A dot in taskname will be created a nested task rec
+        // so generally avoid using dots in taskids. But even if there is
+        // a dot in taskid, not much of a worry. Though the mongo document
+        // field would look a bit wired due to nesting of the dot separated parts of
+        // taskid, storage and retrieval will be in sync.
+        // TODO PNS: Verify the above behavior
+        return FLD_TASKS + "." + taskId + "." + fldName;
     }
 
-    @Override
-    public List<TaskInfo> getTaskInfo(RunId runId) {
-
-        throw new UnsupportedOperationException("Mongo storage manager WIP");
+    private byte[] getField(RunId runId, String fldName) {
+        Bson projectionFields = Projections.fields(
+                Projections.include(fldName));
+        Document doc = collection.find(eq(FLD_ID, runId.getId()))
+                .projection(projectionFields)
+                .first();
+        return toBytes(doc.getString(fldName));
     }
 
-    @Override
-    public void saveTaskResult(RunId runId, TaskExecutionResult result) {
-        throw new UnsupportedOperationException("Mongo storage manager WIP");
+    private void setField(RunId runId, String fldName, byte[] data) {
+        Document query = new Document().append(FLD_ID, runId.getId());
+        Bson update = Updates.combine(Updates.set(fldName, toStr(data)), Updates.currentTimestamp(FLD_MODIFIED_TS));
+        try {
+            UpdateResult result = collection.updateOne(query, update);
+            if (result.getModifiedCount() == 0) {
+                log.error("Unable to update field {}:{}", runId, fldName);
+            }
+        } catch (MongoException me) {
+            log.error("Unable to update field {}:{}", runId, fldName, me);
+        }
     }
 
-    @Override
-    public void markComplete(RunId runId) {
-        throw new UnsupportedOperationException("Mongo storage manager WIP");
-    }
-
-    @Override
-    public void setStartedTask(RunId runId, TaskId taskId, StartedTask startedTask) {
-        throw new UnsupportedOperationException("Mongo storage manager WIP");
-    }
-
-    @Override
-    public RunDetails getRunDetails(RunId runId) {
-        throw new UnsupportedOperationException("Mongo storage manager WIP");
-    }
 }

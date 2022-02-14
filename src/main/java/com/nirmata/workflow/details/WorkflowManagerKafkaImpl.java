@@ -41,6 +41,7 @@ import com.nirmata.workflow.models.TaskType;
 import com.nirmata.workflow.queue.QueueConsumer;
 import com.nirmata.workflow.queue.QueueFactory;
 import com.nirmata.workflow.serialization.Serializer;
+import com.nirmata.workflow.storage.RunRecord;
 import com.nirmata.workflow.storage.StorageManager;
 
 import org.apache.curator.utils.CloseableUtils;
@@ -52,11 +53,10 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.time.LocalDateTime;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.FutureTask;
@@ -150,7 +150,21 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
 
     @Override
     public Map<TaskId, TaskDetails> getTaskDetails(RunId runId) {
-        return this.storageMgr.getTaskDetails(runId);
+        try {
+            byte[] runnableTaskBytes = this.storageMgr.getRunnable(runId);
+            RunnableTask runnableTask = serializer.deserialize(runnableTaskBytes, RunnableTask.class);
+            return runnableTask.getTasks()
+                    .entrySet()
+                    .stream()
+                    .collect(Collectors.toMap(Map.Entry::getKey, entry -> {
+                        ExecutableTask executableTask = entry.getValue();
+                        TaskType taskType = executableTask.getTaskType().equals(nullTaskType) ? null
+                                : executableTask.getTaskType();
+                        return new TaskDetails(entry.getKey(), taskType, executableTask.getMetaData());
+                    }));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
@@ -188,6 +202,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
             WorkflowMessage wm = new WorkflowMessage(runnableTask);
             byte[] runnableTaskBytes = serializer.serialize(wm);
             debugLastSubmittedTimeMs = System.currentTimeMillis();
+            storageMgr.createRun(runId, runnableTaskBytes);
             sendWorkflowToKafka(runId, runnableTaskBytes);
         } catch (Exception e) {
             log.error("Could not submit workflow for runId {} to Kafka", runId, e);
@@ -222,7 +237,16 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
     public void updateTaskProgress(RunId runId, TaskId taskId, int progress) {
         Preconditions.checkArgument((progress >= 0) && (progress <= 100), "progress must be between 0 and 100");
 
-        this.storageMgr.updateTaskProgress(runId, taskId, progress);
+        try {
+            byte[] bytes = storageMgr.getStartedTask(runId, taskId);
+            StartedTask startedTask = serializer.deserialize(bytes, StartedTask.class);
+            StartedTask updatedStartedTask = new StartedTask(startedTask.getInstanceName(),
+                    startedTask.getStartDateUtc(), progress);
+            byte[] data = getSerializer().serialize(updatedStartedTask);
+            storageMgr.setStartedTask(runId, taskId, data);
+        } catch (Exception e) {
+            throw new RuntimeException("Trying to update task info for " + runId + ":" + taskId + ":" + e);
+        }
     }
 
     @Override
@@ -242,7 +266,13 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
 
     @Override
     public Optional<TaskExecutionResult> getTaskExecutionResult(RunId runId, TaskId taskId) {
-        return storageMgr.getTaskExecutionResult(runId, taskId);
+        try {
+            byte[] bytes = storageMgr.getTaskExecutionResult(runId, taskId);
+            TaskExecutionResult taskExecutionResult = serializer.deserialize(bytes, TaskExecutionResult.class);
+            return Optional.of(taskExecutionResult);
+        } catch (Exception e) {
+            throw new RuntimeException(String.format("No data for runId %s taskId %s", runId, taskId), e);
+        }
     }
 
     public String getInstanceName() {
@@ -283,22 +313,98 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
 
     @Override
     public RunInfo getRunInfo(RunId runId) {
-        return storageMgr.getRunInfo(runId);
+        try {
+            byte[] bytes = storageMgr.getRunnable(runId);
+            RunnableTask runnableTask = serializer.deserialize(bytes, RunnableTask.class);
+            return new RunInfo(runId, runnableTask.getStartTimeUtc(), runnableTask.getCompletionTimeUtc().orElse(null));
+        } catch (Exception e) {
+            log.error("Error getting RunInfo for runId: {}", runId, e);
+            throw new RuntimeException("Could not read run: " + runId, e);
+        }
     }
 
     @Override
     public List<RunId> getRunIds() {
-        return storageMgr.getRunIds();
+        try {
+            return storageMgr.getRunIds().stream()
+                    .map(RunId::new)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
     public List<RunInfo> getRunInfo() {
-        return storageMgr.getRunInfo();
+        try {
+            return storageMgr.getRuns().entrySet().stream()
+                    .map(entry -> {
+                        RunId runId = new RunId(entry.getKey());
+                        try {
+                            RunnableTask runnableTask = serializer.deserialize(entry.getValue(), RunnableTask.class);
+                            return new RunInfo(runId, runnableTask.getStartTimeUtc(),
+                                    runnableTask.getCompletionTimeUtc().orElse(null));
+                        } catch (Exception e) {
+                            throw new RuntimeException("Trying to read run info for runId " + runId, e);
+                        }
+                    })
+                    .filter(info -> (info != null))
+                    .collect(Collectors.toList());
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
     public List<TaskInfo> getTaskInfo(RunId runId) {
-        return storageMgr.getTaskInfo(runId);
+        List<TaskInfo> taskInfos = Lists.newArrayList();
+        RunRecord runRec = storageMgr.getRunDetails(runId);
+        try {
+            RunnableTask runnableTask = serializer.deserialize(runRec.getRunnableData(), RunnableTask.class);
+
+            Set<TaskId> notStartedTasks = runnableTask.getTasks().values().stream().filter(ExecutableTask::isExecutable)
+                    .map(ExecutableTask::getTaskId).collect(Collectors.toSet());
+            Map<TaskId, StartedTask> startedTasks = Maps.newHashMap();
+
+            for (Map.Entry<String, byte[]> entry : runRec.getStartedTasks().entrySet()) {
+                TaskId taskId = new TaskId(entry.getKey());
+                try {
+                    StartedTask startedTask = serializer.deserialize(entry.getValue(), StartedTask.class);
+                    startedTasks.put(taskId, startedTask);
+                    notStartedTasks.remove(taskId);
+                } catch (Exception e) {
+                    throw new RuntimeException("Trying to read started task info for task: " + taskId, e);
+                }
+            }
+
+            for (Map.Entry<String, byte[]> entry : runRec.getCompletedTasks().entrySet()) {
+                TaskId taskId = new TaskId(entry.getKey());
+
+                StartedTask startedTask = startedTasks.remove(taskId);
+                if (startedTask != null) // otherwise it must have been deleted
+                {
+                    try {
+                        TaskExecutionResult taskExecutionResult = serializer.deserialize(entry.getValue(),
+                                TaskExecutionResult.class);
+                        taskInfos.add(new TaskInfo(taskId, startedTask.getInstanceName(), startedTask.getStartDateUtc(),
+                                startedTask.getProgress(), taskExecutionResult));
+                        notStartedTasks.remove(taskId);
+                    } catch (Exception e) {
+                        throw new RuntimeException("Trying to read started task info for task: " + taskId, e);
+                    }
+                }
+            }
+
+            // remaining started tasks have not completed
+            startedTasks.forEach((key, startedTask) -> taskInfos.add(new TaskInfo(key, startedTask.getInstanceName(),
+                    startedTask.getStartDateUtc(), startedTask.getProgress())));
+
+            // finally, taskIds not added have not started
+            notStartedTasks.forEach(taskId -> taskInfos.add(new TaskInfo(taskId)));
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+        return taskInfos;
     }
 
     public Serializer getSerializer() {
@@ -337,7 +443,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
         byte[] bytes = serializer.serialize(new WorkflowMessage(executableTask.getTaskId(), result));
         try {
             sendWorkflowToKafka(executableTask.getRunId(), bytes);
-            storageMgr.saveTaskResult(executableTask.getRunId(), result);
+            storageMgr.saveTaskResult(executableTask.getRunId(), executableTask.getTaskId(), bytes);
 
         } catch (Exception e) {
             log.error("Could not set completed data for executable task: {}", executableTask, e);

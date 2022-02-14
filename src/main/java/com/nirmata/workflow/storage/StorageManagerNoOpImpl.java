@@ -16,19 +16,11 @@
 
 package com.nirmata.workflow.storage;
 
-import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
-import com.nirmata.workflow.admin.RunInfo;
-import com.nirmata.workflow.admin.TaskDetails;
-import com.nirmata.workflow.admin.TaskInfo;
-import com.nirmata.workflow.details.internalmodels.RunDetails;
-import com.nirmata.workflow.details.internalmodels.StartedTask;
 import com.nirmata.workflow.models.RunId;
-import com.nirmata.workflow.models.TaskExecutionResult;
 import com.nirmata.workflow.models.TaskId;
 
 // In case workflow does not need functionality such as avoiding duplicate workflows with same name, 
@@ -37,19 +29,13 @@ import com.nirmata.workflow.models.TaskId;
 public class StorageManagerNoOpImpl implements StorageManager {
 
     @Override
-    public Map<TaskId, TaskDetails> getTaskDetails(RunId runId) {
-        return Collections.emptyMap();
+    public byte[] getRunnable(RunId runId) {
+        return null;
     }
 
     @Override
-    public void updateTaskProgress(RunId runId, TaskId taskId, int progress) {
-        // No OP
-
-    }
-
-    @Override
-    public Optional<TaskExecutionResult> getTaskExecutionResult(RunId runId, TaskId taskId) {
-        return Optional.ofNullable(null);
+    public byte[] getTaskExecutionResult(RunId runId, TaskId taskId) {
+        return null;
     }
 
     @Override
@@ -58,45 +44,48 @@ public class StorageManagerNoOpImpl implements StorageManager {
     }
 
     @Override
-    public RunInfo getRunInfo(RunId runId) {
-        return new RunInfo(runId, LocalDateTime.now());
-    }
-
-    @Override
-    public List<RunId> getRunIds() {
+    public List<String> getRunIds() {
         return Collections.emptyList();
     }
 
     @Override
-    public List<RunInfo> getRunInfo() {
-        return Collections.emptyList();
+    public Map<String, byte[]> getRuns() {
+        return Collections.emptyMap();
     }
 
     @Override
-    public List<TaskInfo> getTaskInfo(RunId runId) {
-        return Collections.emptyList();
+    public RunRecord getRunDetails(RunId runId) {
+        // No Op
+        return null;
     }
 
     @Override
-    public void saveTaskResult(RunId runId, TaskExecutionResult result) {
-        // No OP
-    }
-
-    @Override
-    public void markComplete(RunId runId) {
-        // No OP
+    public void createRun(RunId runId, byte[] runnableTaskBytes) {
+        // No Op
 
     }
 
     @Override
-    public void setStartedTask(RunId runId, TaskId taskId, StartedTask startedTask) {
-        // No OP
+    public void updateRun(RunId runId, byte[] runnableTaskBytes) {
+        // No Op
 
     }
 
     @Override
-    public RunDetails getRunDetails(RunId runId) {
-        // No OP
+    public void saveTaskResult(RunId runId, TaskId taskId, byte[] taskResultData) {
+        // No Op
+
+    }
+
+    @Override
+    public void setStartedTask(RunId runId, TaskId taskId, byte[] startedTaskData) {
+        // No Op
+
+    }
+
+    @Override
+    public byte[] getStartedTask(RunId runId, TaskId taskId) {
+        // No Op
         return null;
     }
 

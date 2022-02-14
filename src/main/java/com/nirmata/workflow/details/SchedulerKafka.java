@@ -18,7 +18,6 @@ package com.nirmata.workflow.details;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Sets;
 import com.nirmata.workflow.admin.WorkflowManagerState;
-import com.nirmata.workflow.details.internalmodels.RunDetails;
 import com.nirmata.workflow.details.internalmodels.RunnableTask;
 import com.nirmata.workflow.details.internalmodels.StartedTask;
 import com.nirmata.workflow.details.internalmodels.WorkflowMessage;
@@ -27,6 +26,7 @@ import com.nirmata.workflow.models.RunId;
 import com.nirmata.workflow.models.TaskExecutionResult;
 import com.nirmata.workflow.models.TaskId;
 import com.nirmata.workflow.models.TaskType;
+import com.nirmata.workflow.storage.RunRecord;
 import com.nirmata.workflow.storage.StorageManager;
 
 import org.apache.kafka.clients.consumer.Consumer;
@@ -123,7 +123,7 @@ class SchedulerKafka implements Runnable {
                         runsCache.put(runId.getId(), msg.getRunnableTask().get());
                     } else {
                         // Someone retrying this workflow. Perhaps some old workflow run died
-                        populateInternalCache(storageMgr.getRunDetails(runId));
+                        populateInternalCache(runId, storageMgr.getRunDetails(runId));
                     }
                 } else {
                     if (runsCache.containsKey(runId.getId())) {
@@ -137,7 +137,7 @@ class SchedulerKafka implements Runnable {
                         log.warn(
                                 "Got result, but no runId for {}. Repartition due to failure or residual in Kafka to to late autocommit?",
                                 runId.getId());
-                        populateInternalCache(storageMgr.getRunDetails(runId));
+                        populateInternalCache(runId, storageMgr.getRunDetails(runId));
                     }
 
                 }
@@ -151,11 +151,35 @@ class SchedulerKafka implements Runnable {
 
     }
 
-    private void populateInternalCache(RunDetails runDetails) {
-        if (runDetails == null) {
+    private void populateInternalCache(RunId runId, RunRecord runRec) {
+        if (runRec == null) {
             return;
         }
-        // TODO PNS: Populate internal caches with RunnableTask, and Execution results
+
+        completedTasksCache.put(runId.getId(), new HashMap<String, TaskExecutionResult>());
+        startedTasksCache.put(runId.getId(), new HashSet<String>());
+
+        try {
+            RunnableTask runnableTask = workflowManager.getSerializer().deserialize(runRec.getRunnableData(),
+                    RunnableTask.class);
+            runsCache.put(runId.getId(), runnableTask);
+
+            for (Map.Entry<String, byte[]> entry : runRec.getCompletedTasks().entrySet()) {
+                TaskId taskId = new TaskId(entry.getKey());
+
+                try {
+                    TaskExecutionResult taskExecutionResult = workflowManager.getSerializer().deserialize(
+                            entry.getValue(),
+                            TaskExecutionResult.class);
+                    completedTasksCache.get(runId.getId()).put(taskId.getId(), taskExecutionResult);
+                } catch (Exception e) {
+                    throw new RuntimeException("Trying to read started task info for task: " + taskId, e);
+                }
+            }
+
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private boolean hasCanceledTasks(RunId runId, RunnableTask runnableTask) {
@@ -170,12 +194,23 @@ class SchedulerKafka implements Runnable {
 
     void completeRunnableTask(Logger log, WorkflowManagerKafkaImpl workflowManager, RunId runId,
             RunnableTask runnableTask, int version) {
-        log.debug("Completing run: " + runId);
+        log.debug("Completing run: {}", runId);
         runsCache.remove(runId.getId());
         startedTasksCache.remove(runId.getId());
         completedTasksCache.remove(runId.getId());
 
-        storageMgr.markComplete(runId);
+        log.info("Completing run: {}", runId);
+        try {
+            RunId parentRunId = runnableTask.getParentRunId().orElse(null);
+            RunnableTask completedRunnableTask = new RunnableTask(runnableTask.getTasks(), runnableTask.getTaskDags(),
+                    runnableTask.getStartTimeUtc(), LocalDateTime.now(Clock.systemUTC()), parentRunId);
+            byte[] json = workflowManager.getSerializer().serialize(completedRunnableTask);
+            storageMgr.updateRun(runId, json);
+        } catch (Exception e) {
+            String message = "Could not write completed task data for run: " + runId;
+            log.error(message, e);
+            throw new RuntimeException(message, e);
+        }
     }
 
     private void updateTasks(RunId runId) {
@@ -232,9 +267,10 @@ class SchedulerKafka implements Runnable {
 
             StartedTask startedTask = new StartedTask(workflowManager.getInstanceName(),
                     LocalDateTime.now(Clock.systemUTC()), 0);
-            storageMgr.setStartedTask(runId, task.getTaskId(), startedTask);
+            storageMgr.setStartedTask(runId, task.getTaskId(), workflowManager.getSerializer().serialize(startedTask));
 
             byte[] runnableTaskBytes = workflowManager.getSerializer().serialize(task);
+
             Producer<String, byte[]> producer = taskQueues.get(task.getTaskType());
             if (producer == null) {
                 workflowManager.getKafkaConf().createTaskTopicIfNeeded(task.getTaskType());

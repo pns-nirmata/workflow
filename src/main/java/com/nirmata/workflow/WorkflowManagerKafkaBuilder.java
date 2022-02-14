@@ -18,7 +18,6 @@ package com.nirmata.workflow;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.MoreExecutors;
-import com.mongodb.client.MongoClient;
 import com.nirmata.workflow.admin.AutoCleaner;
 import com.nirmata.workflow.details.AutoCleanerHolder;
 import com.nirmata.workflow.details.KafkaHelper;
@@ -31,6 +30,7 @@ import com.nirmata.workflow.queue.kafka.KafkaSimpleQueueFactory;
 import com.nirmata.workflow.serialization.Serializer;
 import com.nirmata.workflow.serialization.StandardSerializer;
 import com.nirmata.workflow.storage.StorageManager;
+import com.nirmata.workflow.storage.StorageManagerMongoImpl;
 import com.nirmata.workflow.storage.StorageManagerNoOpImpl;
 
 import java.net.InetAddress;
@@ -98,8 +98,7 @@ public class WorkflowManagerKafkaBuilder {
      */
     public WorkflowManagerKafkaBuilder withMongo(String connStr, String namespace, String version) {
         // TODO PNS: Ensure mongo driver compatibility with DB version we use
-        // TODO PNS: Create Mongo storage manager
-        // this.storageManager = new StorageManagerMongoImpl();
+        this.storageManager = new StorageManagerMongoImpl(connStr, namespace, version);
         return this;
     }
 

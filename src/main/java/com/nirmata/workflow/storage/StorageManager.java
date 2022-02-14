@@ -18,41 +18,31 @@ package com.nirmata.workflow.storage;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
-import com.nirmata.workflow.admin.RunInfo;
-import com.nirmata.workflow.admin.TaskDetails;
-import com.nirmata.workflow.admin.TaskInfo;
-import com.nirmata.workflow.details.internalmodels.RunDetails;
-import com.nirmata.workflow.details.internalmodels.StartedTask;
 import com.nirmata.workflow.models.RunId;
-import com.nirmata.workflow.models.TaskExecutionResult;
 import com.nirmata.workflow.models.TaskId;
 
 public interface StorageManager {
 
-    Map<TaskId, TaskDetails> getTaskDetails(RunId runId);
+    byte[] getRunnable(RunId runId);
 
-    void updateTaskProgress(RunId runId, TaskId taskId, int progress);
+    List<String> getRunIds();
 
-    Optional<TaskExecutionResult> getTaskExecutionResult(RunId runId, TaskId taskId);
+    Map<String, byte[]> getRuns();
+
+    RunRecord getRunDetails(RunId runId);
+
+    void createRun(RunId runId, byte[] runnableTaskBytes);
+
+    void updateRun(RunId runId, byte[] runnableTaskBytes);
+
+    byte[] getTaskExecutionResult(RunId runId, TaskId taskId);
+
+    void saveTaskResult(RunId runId, TaskId taskId, byte[] taskResultData);
+
+    byte[] getStartedTask(RunId runId, TaskId taskId);
+
+    void setStartedTask(RunId runId, TaskId taskId, byte[] startedTaskData);
 
     boolean clean(RunId runId);
-
-    RunInfo getRunInfo(RunId runId);
-
-    List<RunId> getRunIds();
-
-    List<RunInfo> getRunInfo();
-
-    List<TaskInfo> getTaskInfo(RunId runId);
-
-    void saveTaskResult(RunId runId, TaskExecutionResult result);
-
-    void markComplete(RunId runId);
-
-    void setStartedTask(RunId runId, TaskId taskId, StartedTask startedTask);
-
-    RunDetails getRunDetails(RunId runId);
-
 }

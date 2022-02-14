@@ -50,6 +50,7 @@ public class TestNormalKafka {
         WorkflowManager workflowManager = WorkflowManagerKafkaBuilder.builder()
                 .addingTaskExecutor(taskExecutor, 10, new TaskType("test", "1", true))
                 .withKafka("localhost:9092", "testns", "v1")
+                .withMongo("mongodb://localhost:27017", "testns", "v1")
                 .build();
         try {
 
