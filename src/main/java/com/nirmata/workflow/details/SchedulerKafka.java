@@ -122,6 +122,7 @@ class SchedulerKafka implements Runnable {
             // TODO PNS: Incorporate fairness here somehow??
 
             for (ConsumerRecord<String, byte[]> record : records) {
+                // PNS TODO: Improve this loop. Club statements into separate functions
                 log.debug("Received message : from partition {} (key: {}) at offset {}",
                         record.partition(), record.key(), record.offset());
                 RunId runId = new RunId(record.key());
@@ -163,11 +164,18 @@ class SchedulerKafka implements Runnable {
                         }
                         break;
                     case CANCEL:
-                        completeRunnableTask(log, workflowManager, runId,
-                                workflowManager.getSerializer().deserialize(storageMgr.getRunnable(runId),
-                                        RunnableTask.class),
-                                -1);
-                        break;
+                        try {
+                            completeRunnableTask(log, workflowManager, runId,
+                                    workflowManager.getSerializer().deserialize(storageMgr.getRunnable(runId),
+                                            RunnableTask.class),
+                                    -1);
+                        } catch (Exception ex) {
+                            log.error("Could not find any data to cancel run: {}", runId);
+                        }
+                        completedTasksCache.remove(runId.getId());
+                        startedTasksCache.remove(runId.getId());
+                        runsCache.remove(runId.getId());
+                        continue;
                     default:
                         log.error("Workflow worker received invalid message type for runId {}, {}", runId,
                                 msg.getMsgType());
