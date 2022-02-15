@@ -129,37 +129,49 @@ class SchedulerKafka implements Runnable {
                         WorkflowMessage.class);
                 log.debug("Deserialized msg of type {}", msg.getMsgType());
 
-                if (msg.getMsgType() == WorkflowMessage.MsgType.TASK) {
-                    if (!msg.isRetry()) {
-                        if (!recentlySubmittedTasks.contains(runId.getId())) {
-                            completedTasksCache.put(runId.getId(), new HashMap<String, TaskExecutionResult>());
-                            startedTasksCache.put(runId.getId(), new HashSet<String>());
-
-                            runsCache.put(runId.getId(), msg.getRunnableTask().get());
-                            recentlySubmittedTasks.add(runId.getId());
+                switch (msg.getMsgType()) {
+                    case TASK:
+                        if (!msg.isRetry()) {
+                            if (!recentlySubmittedTasks.contains(runId.getId())) {
+                                completedTasksCache.put(runId.getId(), new HashMap<String, TaskExecutionResult>());
+                                startedTasksCache.put(runId.getId(), new HashSet<String>());
+                                runsCache.put(runId.getId(), msg.getRunnableTask().get());
+                                recentlySubmittedTasks.add(runId.getId());
+                            } else {
+                                log.debug("Ignoring duplicate task submitted for run {}", runId);
+                                continue;
+                            }
                         } else {
-                            log.debug("Ignoring duplicate task submitted for run {}", runId);
-                            continue;
+                            // Someone retrying this workflow. Perhaps some old workflow run died
+                            populateCacheFromDb(runId);
                         }
-                    } else {
-                        // Someone retrying this workflow. Perhaps some old workflow run died
-                        populateInternalCache(runId, storageMgr.getRunDetails(runId));
-                    }
-                } else {
-                    if (runsCache.containsKey(runId.getId())) {
-                        completedTasksCache.get(runId.getId()).put(msg.getTaskId().get().getId(),
-                                msg.getTaskExecResult().get());
-                        startedTasksCache.get(runId.getId()).remove(msg.getTaskId().get().getId());
-                    } else {
-                        // A task result was received for run that I don't have
-                        // Mostly some partition reassignment. Get the runInfo from DB again
-                        // Or wait for someone to resubmit the job
-                        log.warn(
-                                "Got result, but no runId for {}. Repartition due to failure or residual in Kafka to to late autocommit?",
-                                runId.getId());
-                        populateInternalCache(runId, storageMgr.getRunDetails(runId));
-                    }
 
+                        break;
+                    case TASKRESULT:
+                        if (runsCache.containsKey(runId.getId())) {
+                            completedTasksCache.get(runId.getId()).put(msg.getTaskId().get().getId(),
+                                    msg.getTaskExecResult().get());
+                            startedTasksCache.get(runId.getId()).remove(msg.getTaskId().get().getId());
+                        } else {
+                            // A task result was received for run that I don't have
+                            // Mostly some partition reassignment. Get the runInfo from DB again
+                            // Or wait for someone to resubmit the job
+                            log.warn(
+                                    "Got result, but no runId for {}. Repartition due to failure or residual in Kafka to to late autocommit?",
+                                    runId.getId());
+                            populateCacheFromDb(runId);
+                        }
+                        break;
+                    case CANCEL:
+                        completeRunnableTask(log, workflowManager, runId,
+                                workflowManager.getSerializer().deserialize(storageMgr.getRunnable(runId),
+                                        RunnableTask.class),
+                                -1);
+                        break;
+                    default:
+                        log.error("Workflow worker received invalid message type for runId {}, {}", runId,
+                                msg.getMsgType());
+                        break;
                 }
                 updateTasks(runId);
 
@@ -171,15 +183,17 @@ class SchedulerKafka implements Runnable {
 
     }
 
-    private void populateInternalCache(RunId runId, RunRecord runRec) {
-        if (runRec == null) {
-            return;
-        }
-
-        completedTasksCache.put(runId.getId(), new HashMap<String, TaskExecutionResult>());
-        startedTasksCache.put(runId.getId(), new HashSet<String>());
-
+    private void populateCacheFromDb(RunId runId) {
         try {
+            RunRecord runRec = storageMgr.getRunDetails(runId);
+            if (runRec == null) {
+                log.error("Unexpected state. Did not find runId in DB: {}", runId);
+                return;
+            }
+
+            completedTasksCache.put(runId.getId(), new HashMap<String, TaskExecutionResult>());
+            startedTasksCache.put(runId.getId(), new HashSet<String>());
+
             RunnableTask runnableTask = workflowManager.getSerializer().deserialize(runRec.getRunnableData(),
                     RunnableTask.class);
             runsCache.put(runId.getId(), runnableTask);
@@ -197,8 +211,8 @@ class SchedulerKafka implements Runnable {
                 }
             }
 
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
+        } catch (Exception e) {
+            log.error("Error creating Runnable from DB record for runId: {}", runId, e);
         }
     }
 
@@ -236,6 +250,11 @@ class SchedulerKafka implements Runnable {
         log.debug("Updating run: " + runId);
 
         RunnableTask runnableTask = getRunnableTask(runId);
+
+        if (runnableTask == null) {
+            log.warn("No runnable task for runId {}, skipping update", runId);
+            return;
+        }
 
         if (runnableTask.getCompletionTimeUtc().isPresent()) {
             log.debug("Run is completed. Ignoring: " + runId);

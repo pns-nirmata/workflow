@@ -154,18 +154,18 @@ public class StorageManagerMongoImpl implements StorageManager {
         Map<String, byte[]> startedTasks = new HashMap<String, byte[]>();
         Map<String, byte[]> completedTasks = new HashMap<String, byte[]>();
 
-        Map<String, Map<String, Object>> m = new HashMap<String, Map<String, Object>>();
-
         try {
-            Map<String, Map<String, Object>> tasks = doc.get(FLD_TASKS, m.getClass());
-            if (tasks != null) {
-                for (String taskIdStr : tasks.keySet()) {
-                    if (doc.getString(tskfld(taskIdStr, FLD_STARTED_TASK)) != null) {
-                        startedTasks.put(taskIdStr, toBytes(doc.getString(tskfld(taskIdStr, FLD_STARTED_TASK))));
+            Document allTasks = doc.get(FLD_TASKS, Document.class);
+            if (allTasks != null) {
+                for (String taskId : allTasks.keySet()) {
+                    Document task = allTasks.get(taskId, Document.class);
+                    if (task.getString(FLD_STARTED_TASK) != null) {
+                        startedTasks.put(taskId,
+                                toBytes(task.getString(FLD_STARTED_TASK)));
                     }
-
-                    if (doc.getString(tskfld(taskIdStr, FLD_TASK_EXEC_RESULT)) != null) {
-                        completedTasks.put(taskIdStr, toBytes(doc.getString(tskfld(taskIdStr, FLD_TASK_EXEC_RESULT))));
+                    if (task.getString(FLD_TASK_EXEC_RESULT) != null) {
+                        completedTasks.put(taskId,
+                                toBytes(task.getString(FLD_TASK_EXEC_RESULT)));
                     }
                 }
             }
@@ -206,16 +206,12 @@ public class StorageManagerMongoImpl implements StorageManager {
     }
 
     private void setTaskField(RunId runId, TaskId taskId, String fldName, byte[] data) {
+        // PNS TODO: If task id has "."" in the id string, then a nested record gets
+        // created. Handle this. Replace the dots before and after fetch.
         setField(runId, tskfld(taskId.getId(), fldName), data);
     }
 
     private String tskfld(String taskId, String fldName) {
-        // A dot in taskname will be created a nested task rec
-        // so generally avoid using dots in taskids. But even if there is
-        // a dot in taskid, not much of a worry. Though the mongo document
-        // field would look a bit wired due to nesting of the dot separated parts of
-        // taskid, storage and retrieval will be in sync.
-        // TODO PNS: Verify the above behavior
         return FLD_TASKS + "." + taskId + "." + fldName;
     }
 

@@ -17,9 +17,15 @@
 package com.nirmata.workflow;
 
 import com.google.common.io.Resources;
+import com.nirmata.workflow.models.RunId;
 import com.nirmata.workflow.models.Task;
 import com.nirmata.workflow.models.TaskId;
 import com.nirmata.workflow.models.TaskType;
+import com.nirmata.workflow.admin.RunInfo;
+import com.nirmata.workflow.admin.TaskDetails;
+import com.nirmata.workflow.admin.TaskInfo;
+import com.nirmata.workflow.admin.WorkflowAdmin;
+import com.nirmata.workflow.admin.WorkflowManagerState;
 import com.nirmata.workflow.details.WorkflowManagerKafkaImpl;
 import com.nirmata.workflow.serialization.JsonSerializerMapper;
 
@@ -34,6 +40,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -64,11 +71,27 @@ public class TestNormalKafka {
             String json = Resources.toString(Resources.getResource("tasks.json"), Charset.defaultCharset());
             JsonSerializerMapper jsonSerializerMapper = new JsonSerializerMapper();
             Task task = jsonSerializerMapper.get(jsonSerializerMapper.getMapper().readTree(json), Task.class);
-            workflowManager.submitTask(task);
+            RunId runId = workflowManager.submitTask(task);
+
+            WorkflowAdmin wfAdmin = workflowManager.getAdmin();
+            List<RunId> runIds = wfAdmin.getRunIds();
+            List<RunInfo> runInfos = wfAdmin.getRunInfo();
+            RunInfo runInfo = wfAdmin.getRunInfo(runId);
+            Map<TaskId, TaskDetails> taskDetails = wfAdmin.getTaskDetails(runId);
+            List<TaskInfo> taskInfo = wfAdmin.getTaskInfo(runId);
+            WorkflowManagerState wfMgrState = wfAdmin.getWorkflowManagerState();
 
             taskExecutor.getLatch().await();
             // Give Kafka some time to autocommit
             Thread.sleep(5000); // timing.sleepABit();
+
+            wfAdmin = workflowManager.getAdmin();
+            runIds = wfAdmin.getRunIds();
+            runInfos = wfAdmin.getRunInfo();
+            runInfo = wfAdmin.getRunInfo(runId);
+            taskDetails = wfAdmin.getTaskDetails(runId);
+            taskInfo = wfAdmin.getTaskInfo(runId);
+            wfMgrState = wfAdmin.getWorkflowManagerState();
 
             List<TaskId> flatSet = new ArrayList<TaskId>();
             for (Set<TaskId> set : taskExecutor.getChecker().getSets()) {

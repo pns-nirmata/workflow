@@ -164,6 +164,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
                         return new TaskDetails(entry.getKey(), taskType, executableTask.getMetaData());
                     }));
         } catch (Exception e) {
+            log.error("Error getting task details for runId {}", runId, e);
             throw new RuntimeException(e);
         }
     }
@@ -202,10 +203,10 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
 
         try {
             WorkflowMessage wm = new WorkflowMessage(runnableTask);
-            byte[] runnableTaskBytes = serializer.serialize(wm);
+            byte[] workflowMsg = serializer.serialize(wm);
             debugLastSubmittedTimeMs = System.currentTimeMillis();
-            storageMgr.createRun(runId, runnableTaskBytes);
-            sendWorkflowToKafka(runId, runnableTaskBytes);
+            storageMgr.createRun(runId, serializer.serialize(runnableTask));
+            sendWorkflowToKafka(runId, workflowMsg);
         } catch (Exception e) {
             log.error("Could not submit workflow for runId {} to Kafka", runId, e);
             throw e;
@@ -247,6 +248,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
             byte[] data = getSerializer().serialize(updatedStartedTask);
             storageMgr.setStartedTask(runId, taskId, data);
         } catch (Exception e) {
+            log.error("Error updating task progress for runId:taskId {}:{}", runId, taskId, e);
             throw new RuntimeException("Trying to update task info for " + runId + ":" + taskId + ":" + e);
         }
     }
@@ -332,6 +334,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
                     .map(RunId::new)
                     .collect(Collectors.toList());
         } catch (Exception e) {
+            log.error("Error getting all RunIds", e);
             throw new RuntimeException(e);
         }
     }
@@ -353,6 +356,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
                     .filter(info -> (info != null))
                     .collect(Collectors.toList());
         } catch (Throwable e) {
+            log.error("Error getting RunInfo for all runs", e);
             throw new RuntimeException(e);
         }
     }
@@ -404,6 +408,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
             // finally, taskIds not added have not started
             notStartedTasks.forEach(taskId -> taskInfos.add(new TaskInfo(taskId)));
         } catch (Throwable e) {
+            log.error("Error getting TaskInfo for runId {}}", runId, e);
             throw new RuntimeException(e);
         }
         return taskInfos;
