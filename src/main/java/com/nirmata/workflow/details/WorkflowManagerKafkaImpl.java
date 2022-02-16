@@ -333,7 +333,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
         } catch (Exception e) {
             log.error("Error getting RunInfo for runId: {}", runId, e);
         }
-        return new RunInfo(runId, LocalDateTime.ofEpochSecond(0, 0, ZoneOffset.UTC));
+        return null;
     }
 
     @Override
