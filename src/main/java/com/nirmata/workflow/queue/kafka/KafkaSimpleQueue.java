@@ -47,7 +47,7 @@ public class KafkaSimpleQueue implements Queue {
 
     @Override
     public void put(ExecutableTask executableTask) {
-        // TODO PNS: Currently the send side of queue is directly done in Kafka. This
+        // TODO: Later. Currently the send side of queue is directly done in Kafka. This
         // function should not be executed till then. See Zkp implementation
         throw new UnsupportedOperationException("Internal error. Put side uses Kafka directly");
     }

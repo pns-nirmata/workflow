@@ -84,7 +84,7 @@ class SchedulerKafka implements Runnable {
     private AtomicReference<WorkflowManagerState.State> state = new AtomicReference<>(
             WorkflowManagerState.State.LATENT);
 
-    // TODO PNS: Zkp implementation takes an additional queue factory.
+    // TODO: Later. Zkp implementation takes an additional queue factory.
     // Don't think that level of customization is needed. We simply queue to kafka.
     // Or maybe, evaluate benefits of queue customization later.
     SchedulerKafka(WorkflowManagerKafkaImpl workflowManager,
@@ -119,10 +119,11 @@ class SchedulerKafka implements Runnable {
                 continue;
             }
 
-            // TODO PNS: Incorporate fairness here somehow??
+            // TODO: Later, incorporate fairness here. We can take ideas from Kubernetes
+            // https://kubernetes.io/docs/concepts/cluster-administration/flow-control/
 
             for (ConsumerRecord<String, byte[]> record : records) {
-                // PNS TODO: Improve this loop. Club statements into separate functions
+                // TODO PNS: Improve this loop. Club statements into separate functions
                 log.debug("Received message : from partition {} (key: {}) at offset {}",
                         record.partition(), record.key(), record.offset());
                 RunId runId = new RunId(record.key());
@@ -309,7 +310,7 @@ class SchedulerKafka implements Runnable {
 
     private void queueTask(RunId runId, ExecutableTask task) {
         try {
-            // TODO PNS: Incorporate delayed tasks here somehow??.
+            // TODO: Later, Incorporate delayed tasks here somehow??.
 
             StartedTask startedTask = new StartedTask(workflowManager.getInstanceName(),
                     LocalDateTime.now(Clock.systemUTC()), 0);

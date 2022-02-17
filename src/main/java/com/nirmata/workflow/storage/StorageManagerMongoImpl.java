@@ -54,6 +54,8 @@ public class StorageManagerMongoImpl implements StorageManager {
     private static final String FLD_STARTED_TASK = "started";
     private static final String FLD_TASK_EXEC_RESULT = "execResult";
 
+    private static final String DOT_REPLACE = "_dotInId_";
+
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final MongoClient client;
     private final MongoCollection<Document> collection;
@@ -79,8 +81,6 @@ public class StorageManagerMongoImpl implements StorageManager {
                     .append(FLD_MODIFIED_TS, new Date())
                     .append(FLD_RUNNABLE, toStr(runnableBytes)));
         } catch (Exception e) {
-            // TODO PNS: Distinguish between duplicates and other errors, or have another
-            // API for checking for existence
             log.warn("Could not create new run with id {} ignoring, mostly duplicate", runId, e);
         }
     }
@@ -160,11 +160,11 @@ public class StorageManagerMongoImpl implements StorageManager {
                 for (String taskId : allTasks.keySet()) {
                     Document task = allTasks.get(taskId, Document.class);
                     if (task.getString(FLD_STARTED_TASK) != null) {
-                        startedTasks.put(taskId,
+                        startedTasks.put(decodeDot(taskId),
                                 toBytes(task.getString(FLD_STARTED_TASK)));
                     }
                     if (task.getString(FLD_TASK_EXEC_RESULT) != null) {
-                        completedTasks.put(taskId,
+                        completedTasks.put(decodeDot(taskId),
                                 toBytes(task.getString(FLD_TASK_EXEC_RESULT)));
                     }
                 }
@@ -212,7 +212,15 @@ public class StorageManagerMongoImpl implements StorageManager {
     }
 
     private String tskfld(String taskId, String fldName) {
-        return FLD_TASKS + "." + taskId + "." + fldName;
+        return FLD_TASKS + "." + encodeDot(taskId) + "." + fldName;
+    }
+
+    private String encodeDot(String dotField) {
+        return dotField.replaceAll("\\.", DOT_REPLACE);
+    }
+
+    private String decodeDot(String dotField) {
+        return dotField.replaceAll(DOT_REPLACE, ".");
     }
 
     private byte[] getField(RunId runId, String fldName) {

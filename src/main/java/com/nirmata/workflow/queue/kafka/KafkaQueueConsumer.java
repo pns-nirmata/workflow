@@ -163,7 +163,7 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
     public static volatile Semaphore debugQueuedTasks = null;
 
     void put(byte[] data, long value) throws Exception {
-        // TODO PNS: This queue is used only on the consumer side (executors)
+        // TODO: Later. This queue is used only on the consumer side (executors)
         // Later use this queue in kafka scheduler too, for consistency of design.
         // Should not be called right now. See Zkp queue equivalent
         throw new UnsupportedOperationException("Internal error. Put side uses Kafka directly");
@@ -211,8 +211,8 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
                         ExecutableTask task = serializer.deserialize(record.value(), ExecutableTask.class);
                         processNode(task);
                     }
-                    // TODO PNS: Handle priority and delays to extent possible. See equivalent Zkp
-                    // implementation. More important is handling fairness. Handle this on the
+                    // TODO: Later. Handle priority and delays to extent possible. See equivalent
+                    // Zkp implementation. More important is handling fairness. Handle this on the
                     // workflow worker side where DAG is executed and tasks in DAG are submitted for
                     // execution.
                 } catch (InterruptException | InterruptedException e) {
@@ -229,7 +229,7 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
     }
 
     private void processNode(ExecutableTask executableTask) throws Exception {
-        // TODO PNS: Handle idempotency. With the kafka design, this issue should not
+        // TODO: Later. Handle idempotency. With the kafka design, this issue should not
         // arise actually. See equivalent implementtion in Zkp code
         try {
             taskRunner.executeTask(executableTask);

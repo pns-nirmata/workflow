@@ -129,7 +129,7 @@ public class KafkaHelper {
     }
 
     private void createTopic(String name, int partitions) {
-        // TODO: Consider using when Kafka version is upgraded (say to 3.1+)
+        // TODO: Later, consider using when Kafka version is upgraded (say to 3.1+)
         // final NewTopic newTopic = new NewTopic(name, Optional.of(partitions),
         // Optional.empty());
         // try (final AdminClient adminClient = AdminClient.create(getBrokerProps())) {
@@ -144,7 +144,7 @@ public class KafkaHelper {
     }
 
     private void deleteTopic(String name) {
-        // TODO: Consider using when Kafka version is upgraded (say to 3.1+)
+        // TODO: Later, consider using when Kafka version is upgraded (say to 3.1+)
         // final AdminClient adminClient = AdminClient.create(getBrokerProps());
         // adminClient.deleteTopics(Collections.singletonList(name));
     }
