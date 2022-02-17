@@ -15,19 +15,13 @@
  */
 package com.nirmata.workflow.details;
 
-import java.util.Collections;
-import java.util.Optional;
 import java.util.Properties;
-import java.util.concurrent.ExecutionException;
 
 import com.google.common.base.Preconditions;
 import com.nirmata.workflow.models.TaskType;
 
-import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.common.errors.TopicExistsException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,18 +41,24 @@ public class KafkaHelper {
     // in Kafka directly from outside. Useful mainly in testing.
     final int workflowTopicPartitions;
     final int taskTypeTopicPartitions;
+    final short replicationFactor;
 
     public KafkaHelper(String brokers, String namespace, String version) {
-        this(brokers, namespace, version, 1, 10);
+        this(brokers, namespace, version, 1, 10, (short) 1);
     }
 
     public KafkaHelper(String brokers, String namespace, String version, int wfWorkerParts,
-            int taskWorkerParts) {
+            int taskWorkerParts, short replicationFactor) {
         this.brokers = Preconditions.checkNotNull(brokers, "brokers should be null. e.g. host1:port1,host2:port2..");
-        this.namespace = Preconditions.checkNotNull(namespace, "namespace cannot be null");
-        this.version = Preconditions.checkNotNull(version, "version cannot be null");
+        this.namespace = cleanForKafka(Preconditions.checkNotNull(namespace, "namespace cannot be null"));
+        this.version = cleanForKafka(Preconditions.checkNotNull(version, "version cannot be null"));
         this.workflowTopicPartitions = wfWorkerParts;
         this.taskTypeTopicPartitions = taskWorkerParts;
+        this.replicationFactor = replicationFactor;
+    }
+
+    private String cleanForKafka(String str) {
+        return str.replaceAll("[^a-zA-Z0-9_\\.]", "_");
     }
 
     public String getWorkflowConsumerGroup() {
@@ -98,8 +98,10 @@ public class KafkaHelper {
                 "org.apache.kafka.common.serialization.StringDeserializer");
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
                 "org.apache.kafka.common.serialization.ByteArrayDeserializer");
-        props.put(ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG,
-                "org.apache.kafka.clients.consumer.CooperativeStickyAssignor");
+
+        // TODO: Later, when we upgrade kafka version (say, 3.1), this setting is useful
+        // props.put(ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG,
+        // "org.apache.kafka.clients.consumer.CooperativeStickyAssignor");
 
         return props;
     }
@@ -127,22 +129,23 @@ public class KafkaHelper {
     }
 
     private void createTopic(String name, int partitions) {
-        final NewTopic newTopic = new NewTopic(name, Optional.of(partitions),
-                Optional.empty());
-        try (final AdminClient adminClient = AdminClient.create(getBrokerProps())) {
-            adminClient.createTopics(Collections.singletonList(newTopic)).all().get();
-        } catch (final InterruptedException | ExecutionException e) {
-            // Ignore if TopicExistsException, which may be valid if topic exists
-            if (!(e.getCause() instanceof TopicExistsException)) {
-                log.error("Unexpected exception creating topic {}:{}", name, e);
-                throw new RuntimeException(e);
-            }
-        }
+        // TODO: Consider using when Kafka version is upgraded (say to 3.1+)
+        // final NewTopic newTopic = new NewTopic(name, Optional.of(partitions),
+        // Optional.empty());
+        // try (final AdminClient adminClient = AdminClient.create(getBrokerProps())) {
+        // adminClient.createTopics(Collections.singletonList(newTopic)).all().get();
+        // } catch (final InterruptedException | ExecutionException e) {
+        // // Ignore if TopicExistsException, which may be valid if topic exists
+        // if (!(e.getCause() instanceof TopicExistsException)) {
+        // log.error("Unexpected exception creating topic {}:{}", name, e);
+        // throw new RuntimeException(e);
+        // }
+        // }
     }
 
     private void deleteTopic(String name) {
-        final AdminClient adminClient = AdminClient.create(getBrokerProps());
-        adminClient.deleteTopics(Collections.singletonList(name));
+        // TODO: Consider using when Kafka version is upgraded (say to 3.1+)
+        // final AdminClient adminClient = AdminClient.create(getBrokerProps());
+        // adminClient.deleteTopics(Collections.singletonList(name));
     }
-
 }

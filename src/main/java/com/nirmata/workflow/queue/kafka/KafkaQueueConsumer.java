@@ -200,7 +200,7 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
                 state.set(WorkflowManagerState.State.SLEEPING);
                 try {
                     state.set(WorkflowManagerState.State.SLEEPING);
-                    ConsumerRecords<String, byte[]> records = this.consumer.poll(Duration.ofSeconds(1));
+                    ConsumerRecords<String, byte[]> records = this.consumer.poll(1000);
                     if (records.count() > 0) {
                         state.set(WorkflowManagerState.State.PROCESSING);
                     } else {
