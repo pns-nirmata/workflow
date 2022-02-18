@@ -17,12 +17,16 @@
 package com.nirmata.workflow;
 
 import com.nirmata.workflow.models.TaskType;
+
+import java.lang.reflect.Method;
+
 import com.nirmata.workflow.details.KafkaHelper;
 import com.nirmata.workflow.details.WorkflowManagerKafkaImpl;
 
 import org.apache.curator.utils.CloseableUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testng.SkipException;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -35,7 +39,12 @@ public class TestLoadKafka extends TestLoadBase {
     private static final String TASKTYPE_VER = "1";
 
     @BeforeMethod
-    public void setup() throws Exception {
+    public void setup(Method method) throws Exception {
+        if (!runKafkaTests) {
+            log.warn("Skipping test {}, kafka disabled", method.getName());
+            throw new SkipException("Skipping test, kafka disabled");
+        }
+
         KafkaHelper helper = new KafkaHelper("localhost:9092", KAFKA_NS, KAFKA_NS_VER);
         helper.deleteWorkflowTopic();
         helper.deleteTaskTopic(new TaskType(TASKTYPE, TASKTYPE_VER, true));

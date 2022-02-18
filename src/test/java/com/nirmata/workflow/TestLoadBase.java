@@ -27,7 +27,7 @@ import java.time.Duration;
 
 // Common base to ensure identical inputs for comparing load test results
 // across Zookeeper and Kafka implementations.
-public abstract class TestLoadBase {
+public abstract class TestLoadBase extends BaseForTests {
     protected final Timing timing = new Timing();
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final int ITERS_TEST_1 = 1000;

@@ -26,7 +26,6 @@ import com.nirmata.workflow.admin.TaskDetails;
 import com.nirmata.workflow.admin.TaskInfo;
 import com.nirmata.workflow.admin.WorkflowAdmin;
 import com.nirmata.workflow.details.WorkflowManagerKafkaImpl;
-import com.nirmata.workflow.executor.TaskExecutor;
 import com.nirmata.workflow.serialization.JsonSerializerMapper;
 
 import org.apache.curator.test.Timing;
@@ -34,7 +33,11 @@ import org.apache.curator.utils.CloseableUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
+import org.testng.SkipException;
+import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+
+import java.lang.reflect.Method;
 import java.nio.charset.Charset;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -45,18 +48,27 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class TestNormalKafka {
+public class TestNormalKafka extends BaseForTests {
     protected Properties kafkaProps = new Properties();
     protected final Timing timing = new Timing();
 
     private final Logger log = LoggerFactory.getLogger(getClass());
 
+    @BeforeMethod
+    protected void initTest(Method method) throws Exception {
+        if (!runKafkaTests) {
+            log.warn("Skipping test {}, kafka disabled", method.getName());
+            throw new SkipException("Skipping test, kafka disabled");
+        }
+    }
+
     @Test
     public void testSingleClientSimple() throws Exception {
         TestTaskExecutor taskExecutor = new TestTaskExecutor(6);
-        WorkflowManager workflowManager = createWorkflowManager(taskExecutor);
-
+        WorkflowManager workflowManager = createWorkflowKafkaBuilder()
+                .addingTaskExecutor(taskExecutor, 10, new TaskType("test", "1", true)).build();
         try {
+
             workflowManager.start();
             WorkflowManagerStateSampler sampler = new WorkflowManagerStateSampler(workflowManager.getAdmin(), 10,
                     Duration.ofMillis(100));
@@ -75,17 +87,21 @@ public class TestNormalKafka {
             Thread.sleep(5000);
 
             WorkflowAdmin wfAdmin = workflowManager.getAdmin();
-            List<RunId> runIds = wfAdmin.getRunIds();
-            // Not == 1 because, sometimes there could be residual ids. Not cleaning DB
-            Assert.assertTrue(runIds.size() > 0);
-            List<RunInfo> runInfos = wfAdmin.getRunInfo();
-            Assert.assertTrue(runInfos.size() > 0);
-            RunInfo runInfo = wfAdmin.getRunInfo(runId);
-            Assert.assertNotNull(runInfo);
-            Map<TaskId, TaskDetails> taskDetails = wfAdmin.getTaskDetails(runId);
-            Assert.assertTrue(taskDetails.size() == 7);
-            List<TaskInfo> taskInfo = wfAdmin.getTaskInfo(runId);
-            Assert.assertTrue(taskInfo.size() == 6);
+
+            if (useMongo) {
+                List<RunId> runIds = wfAdmin.getRunIds();
+                List<RunInfo> runInfos = wfAdmin.getRunInfo();
+                // Not == 1 because, sometimes there could be residual ids. Not cleaning DB
+                Assert.assertTrue(runIds.size() > 0);
+                Assert.assertTrue(runInfos.size() > 0);
+
+                RunInfo runInfo = wfAdmin.getRunInfo(runId);
+                Assert.assertNotNull(runInfo);
+                Map<TaskId, TaskDetails> taskDetails = wfAdmin.getTaskDetails(runId);
+                Assert.assertTrue(taskDetails.size() == 7);
+                List<TaskInfo> taskInfo = wfAdmin.getTaskInfo(runId);
+                Assert.assertTrue(taskInfo.size() == 6);
+            }
 
             List<TaskId> flatSet = new ArrayList<TaskId>();
             for (Set<TaskId> set : taskExecutor.getChecker().getSets()) {
@@ -101,23 +117,8 @@ public class TestNormalKafka {
 
             sampler.close();
             log.info("Samples {}", sampler.getSamples());
-        } catch (Exception e) {
-            log.error("Unexpected exception: ", e);
         } finally {
             closeWorkflow(workflowManager);
-        }
-    }
-
-    private WorkflowManager createWorkflowManager(TaskExecutor taskExecutor) {
-        try {
-            return WorkflowManagerKafkaBuilder.builder()
-                    .addingTaskExecutor(taskExecutor, 10, new TaskType("test", "1", true))
-                    .withKafka("localhost:9092", "abc#$%a.b_c-d", "v1")
-                    .withMongo("mongodb://localhost:27017", "testns", "v1")
-                    .build();
-        } catch (Exception e) {
-            log.error("Could not create workflow manager with kafka and Mongo", e);
-            throw e;
         }
     }
 
