@@ -124,12 +124,11 @@ class SchedulerKafka implements Runnable {
 
             for (ConsumerRecord<String, byte[]> record : records) {
                 // TODO PNS: Improve this loop. Club statements into separate functions
-                log.debug("Received message : from partition {} (key: {}) at offset {}",
-                        record.partition(), record.key(), record.offset());
                 RunId runId = new RunId(record.key());
                 WorkflowMessage msg = workflowManager.getSerializer().deserialize(record.value(),
                         WorkflowMessage.class);
-                log.debug("Deserialized msg of type {}", msg.getMsgType());
+                log.debug("Deserialized message of type {} from partition {} (key: {}) at offset {}",
+                        msg.getMsgType(), record.partition(), record.key(), record.offset());
 
                 switch (msg.getMsgType()) {
                     case TASK:
