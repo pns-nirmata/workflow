@@ -25,8 +25,8 @@ import com.nirmata.workflow.admin.RunInfo;
 import com.nirmata.workflow.admin.TaskDetails;
 import com.nirmata.workflow.admin.TaskInfo;
 import com.nirmata.workflow.admin.WorkflowAdmin;
-import com.nirmata.workflow.admin.WorkflowManagerState;
 import com.nirmata.workflow.details.WorkflowManagerKafkaImpl;
+import com.nirmata.workflow.executor.TaskExecutor;
 import com.nirmata.workflow.serialization.JsonSerializerMapper;
 
 import org.apache.curator.test.Timing;
@@ -54,13 +54,9 @@ public class TestNormalKafka {
     @Test
     public void testSingleClientSimple() throws Exception {
         TestTaskExecutor taskExecutor = new TestTaskExecutor(6);
-        WorkflowManager workflowManager = WorkflowManagerKafkaBuilder.builder()
-                .addingTaskExecutor(taskExecutor, 10, new TaskType("test", "1", true))
-                .withKafka("localhost:9092", "abc#$%a.b_c-d", "v1")
-                .withMongo("mongodb://localhost:27017", "testns", "v1")
-                .build();
-        try {
+        WorkflowManager workflowManager = createWorkflowManager(taskExecutor);
 
+        try {
             workflowManager.start();
             WorkflowManagerStateSampler sampler = new WorkflowManagerStateSampler(workflowManager.getAdmin(), 10,
                     Duration.ofMillis(100));
@@ -109,6 +105,19 @@ public class TestNormalKafka {
             log.error("Unexpected exception: ", e);
         } finally {
             closeWorkflow(workflowManager);
+        }
+    }
+
+    private WorkflowManager createWorkflowManager(TaskExecutor taskExecutor) {
+        try {
+            return WorkflowManagerKafkaBuilder.builder()
+                    .addingTaskExecutor(taskExecutor, 10, new TaskType("test", "1", true))
+                    .withKafka("localhost:9092", "abc#$%a.b_c-d", "v1")
+                    .withMongo("mongodb://localhost:27017", "testns", "v1")
+                    .build();
+        } catch (Exception e) {
+            log.error("Could not create workflow manager with kafka and Mongo", e);
+            throw e;
         }
     }
 
