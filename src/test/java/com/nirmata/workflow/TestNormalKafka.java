@@ -73,26 +73,23 @@ public class TestNormalKafka {
             Task task = jsonSerializerMapper.get(jsonSerializerMapper.getMapper().readTree(json), Task.class);
             RunId runId = workflowManager.submitTask(task);
 
+            taskExecutor.getLatch().await();
+            // Give Kafka some time to autocommit, so next run does does not start
+            // without advancing consumer offsets
+            Thread.sleep(5000);
+
             WorkflowAdmin wfAdmin = workflowManager.getAdmin();
             List<RunId> runIds = wfAdmin.getRunIds();
+            // Not == 1 because, sometimes there could be residual ids. Not cleaning DB
+            Assert.assertTrue(runIds.size() > 0);
             List<RunInfo> runInfos = wfAdmin.getRunInfo();
+            Assert.assertTrue(runInfos.size() > 0);
             RunInfo runInfo = wfAdmin.getRunInfo(runId);
+            Assert.assertNotNull(runInfo);
             Map<TaskId, TaskDetails> taskDetails = wfAdmin.getTaskDetails(runId);
+            Assert.assertTrue(taskDetails.size() == 7);
             List<TaskInfo> taskInfo = wfAdmin.getTaskInfo(runId);
-
-            taskExecutor.getLatch().await();
-            // Give Kafka some time to autocommit
-            Thread.sleep(5000); // timing.sleepABit();
-
-            // TODO: Have relevant asserts for the following
-            // when we run with MongoDB.
-            wfAdmin = workflowManager.getAdmin();
-            runIds = wfAdmin.getRunIds();
-            runInfos = wfAdmin.getRunInfo();
-            runInfo = wfAdmin.getRunInfo(runId);
-            taskDetails = wfAdmin.getTaskDetails(runId);
-            taskInfo = wfAdmin.getTaskInfo(runId);
-            log.debug("{}, {}, {}, {}, {}", runIds, runInfos, runInfo, taskDetails, taskInfo);
+            Assert.assertTrue(taskInfo.size() == 6);
 
             List<TaskId> flatSet = new ArrayList<TaskId>();
             for (Set<TaskId> set : taskExecutor.getChecker().getSets()) {
