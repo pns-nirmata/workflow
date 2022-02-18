@@ -173,9 +173,6 @@ class SchedulerKafka implements Runnable {
                         } catch (Exception ex) {
                             log.error("Could not find any data to cancel run: {}", runId);
                         }
-                        completedTasksCache.remove(runId.getId());
-                        startedTasksCache.remove(runId.getId());
-                        runsCache.remove(runId.getId());
                         continue;
                     default:
                         log.error("Workflow worker received invalid message type for runId {}, {}", runId,
