@@ -262,7 +262,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
     public boolean cancelRun(RunId runId) {
         log.info("Attempting to cancel run " + runId);
 
-        byte[] bytes = serializer.serialize(new WorkflowMessage(WorkflowMessage.MsgType.CANCEL));
+        byte[] bytes = serializer.serialize(new WorkflowMessage());
         try {
             sendWorkflowToKafka(runId, bytes);
         } catch (Exception e) {

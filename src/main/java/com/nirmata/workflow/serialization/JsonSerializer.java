@@ -256,9 +256,11 @@ class JsonSerializer {
             case TASKRESULT:
                 msg = new WorkflowMessage(taskId, res);
                 break;
-            default:
-                msg = new WorkflowMessage(msgType);
+            case CANCEL:
+                msg = new WorkflowMessage();
                 break;
+            default:
+                throw new RuntimeException("Unhandled workflow message " + msgType);
         }
         return msg;
     }

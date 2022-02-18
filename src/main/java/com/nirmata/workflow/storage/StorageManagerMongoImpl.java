@@ -108,6 +108,10 @@ public class StorageManagerMongoImpl implements StorageManager {
         Document doc = collection.find(eq(FLD_ID, runId.getId()))
                 .projection(projectionFields)
                 .first();
+        if (doc == null) {
+            return null;
+        }
+
         return toBytes(doc.getString(FLD_RUNNABLE));
     }
 
@@ -148,6 +152,9 @@ public class StorageManagerMongoImpl implements StorageManager {
         Document doc = collection.find(eq(FLD_ID, runId.getId()))
                 .projection(projectionFields)
                 .first();
+        if (doc == null) {
+            return null;
+        }
 
         byte[] runnable = toBytes(doc.getString(FLD_RUNNABLE));
 
@@ -229,6 +236,9 @@ public class StorageManagerMongoImpl implements StorageManager {
         Document doc = collection.find(eq(FLD_ID, runId.getId()))
                 .projection(projectionFields)
                 .first();
+        if (doc == null) {
+            return null;
+        }
         return toBytes(doc.getString(fldName));
     }
 

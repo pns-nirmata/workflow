@@ -18,7 +18,6 @@ package com.nirmata.workflow.details.internalmodels;
 import java.io.Serializable;
 import java.util.Optional;
 
-import com.nirmata.workflow.models.RunId;
 import com.nirmata.workflow.models.TaskExecutionResult;
 import com.nirmata.workflow.models.TaskId;
 
@@ -35,8 +34,8 @@ public class WorkflowMessage implements Serializable {
     private Optional<TaskId> taskId = Optional.ofNullable(null);
     private Optional<TaskExecutionResult> taskExecResult = Optional.ofNullable(null);
 
-    public WorkflowMessage(MsgType type) {
-        this.msgType = type;
+    public WorkflowMessage() {
+        this.msgType = MsgType.CANCEL;
     }
 
     public WorkflowMessage(RunnableTask rt) {
@@ -73,6 +72,47 @@ public class WorkflowMessage implements Serializable {
 
     public Optional<TaskExecutionResult> getTaskExecResult() {
         return taskExecResult;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+
+        WorkflowMessage that = (WorkflowMessage) o;
+
+        if (!msgType.equals(that.msgType)) {
+            return false;
+        }
+        if (!isRetry == that.isRetry) {
+            return false;
+        }
+        if (!runnableTask.equals(that.runnableTask)) {
+            return false;
+        }
+        if (!taskId.equals(that.taskId)) {
+            return false;
+        }
+        if (!taskExecResult.equals(that.taskExecResult)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    @Override
+    public String toString() {
+        return "WorkflowMessage{" +
+                "msgType=" + msgType +
+                ", isRetry=" + isRetry +
+                ", runnableTask=" + runnableTask +
+                ", taskId=" + taskId +
+                ", taskExecResult=" + taskExecResult +
+                '}';
     }
 
 }

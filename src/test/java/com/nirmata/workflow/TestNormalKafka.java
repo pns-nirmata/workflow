@@ -79,19 +79,20 @@ public class TestNormalKafka {
             RunInfo runInfo = wfAdmin.getRunInfo(runId);
             Map<TaskId, TaskDetails> taskDetails = wfAdmin.getTaskDetails(runId);
             List<TaskInfo> taskInfo = wfAdmin.getTaskInfo(runId);
-            WorkflowManagerState wfMgrState = wfAdmin.getWorkflowManagerState();
 
             taskExecutor.getLatch().await();
             // Give Kafka some time to autocommit
             Thread.sleep(5000); // timing.sleepABit();
 
+            // TODO: Have relevant asserts for the following
+            // when we run with MongoDB.
             wfAdmin = workflowManager.getAdmin();
             runIds = wfAdmin.getRunIds();
             runInfos = wfAdmin.getRunInfo();
             runInfo = wfAdmin.getRunInfo(runId);
             taskDetails = wfAdmin.getTaskDetails(runId);
             taskInfo = wfAdmin.getTaskInfo(runId);
-            wfMgrState = wfAdmin.getWorkflowManagerState();
+            log.debug("{}, {}, {}, {}, {}", runIds, runInfos, runInfo, taskDetails, taskInfo);
 
             List<TaskId> flatSet = new ArrayList<TaskId>();
             for (Set<TaskId> set : taskExecutor.getChecker().getSets()) {
