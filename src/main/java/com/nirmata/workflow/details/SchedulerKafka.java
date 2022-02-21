@@ -160,7 +160,6 @@ class SchedulerKafka implements Runnable {
                             log.warn(
                                     "Got result, but no runId for {}, ignoring. Repartition due to failure or residual in Kafka to to late autocommit?",
                                     runId.getId());
-                            // populateCacheFromDb(runId);
                         }
                         break;
                     case CANCEL:
