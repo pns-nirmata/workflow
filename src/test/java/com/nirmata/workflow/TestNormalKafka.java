@@ -195,8 +195,6 @@ public class TestNormalKafka extends BaseForTests {
             RunId runId = workflowManager.submitTask(task);
 
             taskExecutor.getLatch().await();
-            // Give Kafka some time to autocommit, so next test run does does not start
-            // without advancing consumer offsets
             sleepForKafka();
 
             WorkflowAdmin wfAdmin = workflowManager.getAdmin();

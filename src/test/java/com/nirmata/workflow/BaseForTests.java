@@ -77,6 +77,9 @@ public abstract class BaseForTests {
         }
     }
 
+    // Give Kafka some time to record final run completion
+    // Else, consumer offsets are not recorded, and next run
+    // fails (or all queues need to be cleared)
     protected void sleepForKafka() {
         try {
             Thread.sleep(5000);
