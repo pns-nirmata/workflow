@@ -443,7 +443,7 @@ public class TestNormalKafka extends BaseForTests {
         }
     }
 
-    @Test
+    @Test(enabled = true)
     public void testMultiTypes() throws Exception {
         TaskType taskType1 = new TaskType("type1", "1", true);
         TaskType taskType2 = new TaskType("type2", "1", true);
