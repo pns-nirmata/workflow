@@ -68,12 +68,20 @@ public abstract class BaseForTests {
             WorkflowManagerKafkaBuilder builder = WorkflowManagerKafkaBuilder.builder()
                     .withKafka(KAFKA_ADDR, NAMESPACE, NAMESPACE_VER);
             if (useMongo) {
-                builder = builder.withMongo(MONGO_URI, NAMESPACE, NAMESPACE_VER);
+                builder = builder.withMongo(MONGO_URI);
             }
             return builder;
         } catch (Exception e) {
             log.error("Could not create workflow manager with kafka and Mongo", e);
             throw e;
+        }
+    }
+
+    protected void sleepForKafka() {
+        try {
+            Thread.sleep(5000);
+        } catch (Exception e) {
+            log.warn("Sleep interrupted", e);
         }
     }
 

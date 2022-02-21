@@ -53,6 +53,8 @@ public class WorkflowManagerKafkaBuilder {
     private StorageManager storageManager = new StorageManagerNoOpImpl();
 
     private final List<TaskExecutorSpec> specs = Lists.newArrayList();
+    private String namespace = "";
+    private String namespaceVer = "";
 
     /**
      * Return a new builder
@@ -79,6 +81,8 @@ public class WorkflowManagerKafkaBuilder {
      */
     public WorkflowManagerKafkaBuilder withKafka(String brokers, String namespace, String version) {
         this.kafkaHelper = new KafkaHelper(brokers, namespace, version);
+        this.namespace = kafkaHelper.getNamespace();
+        this.namespaceVer = kafkaHelper.getVersion();
 
         return this;
     }
@@ -96,9 +100,8 @@ public class WorkflowManagerKafkaBuilder {
      * @param version   workflow version
      * @return this (for chaining)
      */
-    public WorkflowManagerKafkaBuilder withMongo(String connStr, String namespace, String version) {
-        // TODO PNS: Ensure mongo driver compatibility with DB version we use
-        this.storageManager = new StorageManagerMongoImpl(connStr, namespace, version);
+    public WorkflowManagerKafkaBuilder withMongo(String connStr) {
+        this.storageManager = new StorageManagerMongoImpl(connStr, namespace, namespaceVer);
         return this;
     }
 

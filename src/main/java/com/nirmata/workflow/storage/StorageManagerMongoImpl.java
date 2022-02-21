@@ -64,9 +64,10 @@ public class StorageManagerMongoImpl implements StorageManager {
         try {
             this.client = MongoClients.create(
                     MongoClientSettings.builder().applyConnectionString(new ConnectionString(uri))
-                            .applicationName(KAFKA_WORKFLOW_DBNAME + "-" + namespace + "-" + version)
+                            .applicationName(KAFKA_WORKFLOW_DBNAME + "_" + namespace + "_" + version)
                             .build());
-            this.collection = this.client.getDatabase(KAFKA_WORKFLOW_DBNAME).getCollection(RUN_COLL);
+            this.collection = this.client.getDatabase(KAFKA_WORKFLOW_DBNAME)
+                    .getCollection(RUN_COLL + "_" + namespace + "_" + version);
         } catch (Exception e) {
             log.error("Error connecting to Mongo with {}", uri, e);
             throw e;
@@ -213,8 +214,6 @@ public class StorageManagerMongoImpl implements StorageManager {
     }
 
     private void setTaskField(RunId runId, TaskId taskId, String fldName, byte[] data) {
-        // PNS TODO: If task id has "."" in the id string, then a nested record gets
-        // created. Handle this. Replace the dots before and after fetch.
         setField(runId, tskfld(taskId.getId(), fldName), data);
     }
 

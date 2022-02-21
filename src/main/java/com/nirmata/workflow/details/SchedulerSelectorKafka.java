@@ -49,12 +49,11 @@ public class SchedulerSelectorKafka implements Closeable {
         // the workflow topic. All extra consumers for a workflow queue exceeding
         // partitions will be idle till someone dies.
 
-        log.info(workflowManager.getInstanceName() + " is now the scheduler");
+        log.info(workflowManager.getInstanceName() + " ready to act as scheduler");
         try {
             scheduler.set(new SchedulerKafka(workflowManager, autoCleanerHolder));
             new Thread(scheduler.get()).start();
         } finally {
-            log.info(workflowManager.getInstanceName() + " is no longer the scheduler");
             scheduler.set(null);
 
             CountDownLatch latch = debugLatch.getAndSet(null);

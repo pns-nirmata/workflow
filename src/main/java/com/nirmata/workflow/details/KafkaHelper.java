@@ -141,11 +141,22 @@ public class KafkaHelper {
         // throw new RuntimeException(e);
         // }
         // }
+        log.debug("CreateTopic NoOp for now");
     }
 
     private void deleteTopic(String name) {
         // TODO: Later, consider using when Kafka version is upgraded (say to 3.1+)
         // final AdminClient adminClient = AdminClient.create(getBrokerProps());
         // adminClient.deleteTopics(Collections.singletonList(name));
+        log.debug("DeleteTopic NoOp for now");
     }
+
+    public String getNamespace() {
+        return namespace;
+    }
+
+    public String getVersion() {
+        return version;
+    }
+
 }

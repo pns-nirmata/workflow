@@ -19,6 +19,7 @@ package com.nirmata.workflow.queue.kafka;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
+import com.mongodb.MongoInterruptedException;
 import com.nirmata.workflow.admin.WorkflowManagerState;
 import com.nirmata.workflow.details.KafkaHelper;
 import com.nirmata.workflow.models.ExecutableTask;
@@ -215,7 +216,7 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
                     // Zkp implementation. More important is handling fairness. Handle this on the
                     // workflow worker side where DAG is executed and tasks in DAG are submitted for
                     // execution.
-                } catch (InterruptException | InterruptedException e) {
+                } catch (MongoInterruptedException | InterruptException | InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
                 } catch (Exception e) {

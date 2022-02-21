@@ -20,6 +20,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.mongodb.MongoInterruptedException;
 import com.nirmata.workflow.WorkflowManager;
 import com.nirmata.workflow.admin.RunInfo;
 import com.nirmata.workflow.admin.TaskDetails;
@@ -277,8 +278,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
     public Optional<TaskExecutionResult> getTaskExecutionResult(RunId runId, TaskId taskId) {
         try {
             byte[] bytes = storageMgr.getTaskExecutionResult(runId, taskId);
-            TaskExecutionResult taskExecutionResult = serializer.deserialize(bytes, TaskExecutionResult.class);
-            return Optional.of(taskExecutionResult);
+            return Optional.ofNullable(bytes == null ? null : serializer.deserialize(bytes, TaskExecutionResult.class));
         } catch (Exception e) {
             log.error("No execution result found for runId {} taskId {}", runId, taskId, e);
         }
