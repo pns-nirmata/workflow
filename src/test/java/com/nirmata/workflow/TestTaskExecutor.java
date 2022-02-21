@@ -21,9 +21,14 @@ import com.nirmata.workflow.executor.TaskExecutionStatus;
 import com.nirmata.workflow.executor.TaskExecutor;
 import com.nirmata.workflow.models.ExecutableTask;
 import com.nirmata.workflow.models.TaskExecutionResult;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.concurrent.CountDownLatch;
 
 public class TestTaskExecutor implements TaskExecutor {
+    private final Logger log = LoggerFactory.getLogger(getClass());
     private final ConcurrentTaskChecker checker = new ConcurrentTaskChecker();
     private final int latchQty;
     private volatile CountDownLatch latch;
@@ -83,8 +88,10 @@ public class TestTaskExecutor implements TaskExecutor {
 
     @SuppressWarnings("UnusedParameters")
     protected void doRun(ExecutableTask task) throws InterruptedException {
+        log.debug("Running test business logic");
         if (this.sleepMillis > 0) {
             Thread.sleep(this.sleepMillis);
         }
+        log.debug("Finished running test business logic");
     }
 }

@@ -17,6 +17,7 @@
 package com.nirmata.workflow;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.io.Resources;
 import com.nirmata.workflow.models.ExecutableTask;
@@ -74,7 +75,7 @@ public class TestNormalKafka extends BaseForTests {
         }
     }
 
-    @Test
+    @Test(enabled = false)
     public void testFailedStop() throws Exception {
         TestTaskExecutor taskExecutor = new TestTaskExecutor(2) {
             @Override
@@ -115,7 +116,7 @@ public class TestNormalKafka extends BaseForTests {
         }
     }
 
-    @Test
+    @Test(enabled = false)
     public void testAutoCleanRun() throws Exception {
 
         TaskExecutor taskExecutor = (w, t) -> () -> new TaskExecutionResult(TaskExecutionStatus.SUCCESS, "");
@@ -139,7 +140,7 @@ public class TestNormalKafka extends BaseForTests {
         }
     }
 
-    @Test
+    @Test(enabled = false)
     public void testCanceling() throws Exception {
         Semaphore executionLatch = new Semaphore(0);
         CountDownLatch continueLatch = new CountDownLatch(1);
@@ -175,7 +176,7 @@ public class TestNormalKafka extends BaseForTests {
         }
     }
 
-    @Test
+    @Test(enabled = false)
     public void testSingleClientSimple() throws Exception {
         TestTaskExecutor taskExecutor = new TestTaskExecutor(6);
         WorkflowManager workflowManager = createWorkflowKafkaBuilder()
@@ -233,7 +234,7 @@ public class TestNormalKafka extends BaseForTests {
         }
     }
 
-    @Test
+    @Test(enabled = false)
     public void testMultiClientSimple() throws Exception {
         final int QTY = 4;
 
@@ -274,7 +275,7 @@ public class TestNormalKafka extends BaseForTests {
         }
     }
 
-    @Test
+    @Test(enabled = false)
     public void testNoData() throws Exception {
         WorkflowManager workflowManager = createWorkflowKafkaBuilder()
                 .addingTaskExecutor(new TestTaskExecutor(1), 10, new TaskType("test", "1", true))
@@ -282,6 +283,40 @@ public class TestNormalKafka extends BaseForTests {
 
         Optional<TaskExecutionResult> taskData = workflowManager.getTaskExecutionResult(new RunId(), new TaskId());
         Assert.assertFalse(taskData.isPresent());
+    }
+
+    @Test(enabled = true)
+    public void testTaskData() throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        TaskExecutor taskExecutor = (w, t) -> () -> {
+            latch.countDown();
+            Map<String, String> resultData = Maps.newHashMap();
+            resultData.put("one", "1");
+            resultData.put("two", "2");
+            return new TaskExecutionResult(TaskExecutionStatus.SUCCESS, "test", resultData);
+        };
+        TaskType taskType = new TaskType("test", "1", true);
+        WorkflowManager workflowManager = createWorkflowKafkaBuilder()
+                .addingTaskExecutor(taskExecutor, 10, taskType)
+                .build();
+        try {
+            workflowManager.start();
+
+            TaskId taskId = new TaskId();
+            RunId runId = workflowManager.submitTask(new Task(taskId, taskType));
+
+            Assert.assertTrue(timing.awaitLatch(latch));
+            sleepForKafka();
+
+            Optional<TaskExecutionResult> taskData = workflowManager.getTaskExecutionResult(runId, taskId);
+            Assert.assertTrue(taskData.isPresent());
+            Map<String, String> expected = Maps.newHashMap();
+            expected.put("one", "1");
+            expected.put("two", "2");
+            Assert.assertEquals(taskData.get().getResultData(), expected);
+        } finally {
+            closeWorkflow(workflowManager);
+        }
     }
 
     private void closeWorkflow(WorkflowManager workflowManager) throws InterruptedException {

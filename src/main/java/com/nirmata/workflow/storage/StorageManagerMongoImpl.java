@@ -210,7 +210,18 @@ public class StorageManagerMongoImpl implements StorageManager {
     }
 
     private byte[] getTaskField(RunId runId, TaskId taskId, String fldName) {
-        return getField(runId, tskfld(taskId.getId(), fldName));
+        Bson projectionFields = Projections.fields(
+                Projections.include(FLD_TASKS));
+        Document doc = collection.find(eq(FLD_ID, runId.getId()))
+                .projection(projectionFields)
+                .first();
+        if (doc != null && doc.get(FLD_TASKS, Document.class) != null) {
+            Document task = doc.get(FLD_TASKS, Document.class).get(encodeDot(taskId.getId()), Document.class);
+            if (task != null && task.getString(fldName) != null) {
+                return toBytes(task.getString(fldName));
+            }
+        }
+        return null;
     }
 
     private void setTaskField(RunId runId, TaskId taskId, String fldName, byte[] data) {
@@ -227,18 +238,6 @@ public class StorageManagerMongoImpl implements StorageManager {
 
     private String decodeDot(String dotField) {
         return dotField.replaceAll(DOT_REPLACE, ".");
-    }
-
-    private byte[] getField(RunId runId, String fldName) {
-        Bson projectionFields = Projections.fields(
-                Projections.include(fldName));
-        Document doc = collection.find(eq(FLD_ID, runId.getId()))
-                .projection(projectionFields)
-                .first();
-        if (doc == null) {
-            return null;
-        }
-        return toBytes(doc.getString(fldName));
     }
 
     private void setField(RunId runId, String fldName, byte[] data) {
