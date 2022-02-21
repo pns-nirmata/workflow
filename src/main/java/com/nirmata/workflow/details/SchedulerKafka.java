@@ -155,12 +155,12 @@ class SchedulerKafka implements Runnable {
                             startedTasksCache.get(runId.getId()).remove(msg.getTaskId().get().getId());
                         } else {
                             // A task result was received for run that I don't have
-                            // Mostly some partition reassignment. Get the runInfo from DB again
+                            // Mostly some partition reassignment, or cancelled run.
                             // Or wait for someone to resubmit the job
                             log.warn(
-                                    "Got result, but no runId for {}. Repartition due to failure or residual in Kafka to to late autocommit?",
+                                    "Got result, but no runId for {}, ignoring. Repartition due to failure or residual in Kafka to to late autocommit?",
                                     runId.getId());
-                            populateCacheFromDb(runId);
+                            // populateCacheFromDb(runId);
                         }
                         break;
                     case CANCEL:
