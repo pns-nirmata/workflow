@@ -88,10 +88,8 @@ public class TestTaskExecutor implements TaskExecutor {
 
     @SuppressWarnings("UnusedParameters")
     protected void doRun(ExecutableTask task) throws InterruptedException {
-        log.debug("Running test business logic");
         if (this.sleepMillis > 0) {
             Thread.sleep(this.sleepMillis);
         }
-        log.debug("Finished running test business logic");
     }
 }

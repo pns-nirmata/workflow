@@ -17,6 +17,7 @@ package com.nirmata.workflow.details;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Sets;
+import com.mongodb.MongoInterruptedException;
 import com.nirmata.workflow.admin.WorkflowManagerState;
 import com.nirmata.workflow.details.internalmodels.RunnableTask;
 import com.nirmata.workflow.details.internalmodels.StartedTask;
@@ -38,6 +39,7 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.errors.InterruptException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -109,80 +111,93 @@ class SchedulerKafka implements Runnable {
         // as workflow workers. So parallel processing will happen anyways with multiple
         // partitions for workflows.
         this.workflowConsumer.subscribe(Collections.singletonList(workflowManager.getKafkaConf().getWorkflowTopic()));
+        try {
+            // TODO PNS: Improve this piece of code. Club statements into separate functions
+            while (!Thread.currentThread().isInterrupted()) {
+                state.set(WorkflowManagerState.State.SLEEPING);
+                ConsumerRecords<String, byte[]> records = workflowConsumer
+                        .poll(autoCleanerHolder.getRunPeriod().toMillis());
+                if (records.count() > 0) {
+                    state.set(WorkflowManagerState.State.PROCESSING);
 
-        while (true) {
-            state.set(WorkflowManagerState.State.SLEEPING);
-            ConsumerRecords<String, byte[]> records = workflowConsumer.poll(1000);
-            if (records.count() > 0) {
-                state.set(WorkflowManagerState.State.PROCESSING);
-            } else {
-                continue;
-            }
+                    // TODO: Later, incorporate fairness here. We can take ideas from Kubernetes
+                    // https://kubernetes.io/docs/concepts/cluster-administration/flow-control/
 
-            // TODO: Later, incorporate fairness here. We can take ideas from Kubernetes
-            // https://kubernetes.io/docs/concepts/cluster-administration/flow-control/
+                    for (ConsumerRecord<String, byte[]> record : records) {
+                        RunId runId = new RunId(record.key());
+                        WorkflowMessage msg = workflowManager.getSerializer().deserialize(record.value(),
+                                WorkflowMessage.class);
+                        log.debug("Deserialized message of type {} from partition {} (key: {}) at offset {}",
+                                msg.getMsgType(), record.partition(), record.key(), record.offset());
 
-            for (ConsumerRecord<String, byte[]> record : records) {
-                // TODO PNS: Improve this loop. Club statements into separate functions
-                RunId runId = new RunId(record.key());
-                WorkflowMessage msg = workflowManager.getSerializer().deserialize(record.value(),
-                        WorkflowMessage.class);
-                log.debug("Deserialized message of type {} from partition {} (key: {}) at offset {}",
-                        msg.getMsgType(), record.partition(), record.key(), record.offset());
+                        switch (msg.getMsgType()) {
+                            case TASK:
+                                if (!msg.isRetry()) {
+                                    if (!recentlySubmittedTasks.contains(runId.getId())) {
+                                        completedTasksCache.put(runId.getId(),
+                                                new HashMap<String, TaskExecutionResult>());
+                                        startedTasksCache.put(runId.getId(), new HashSet<String>());
+                                        runsCache.put(runId.getId(), msg.getRunnableTask().get());
+                                        recentlySubmittedTasks.add(runId.getId());
+                                    } else {
+                                        log.debug("Ignoring duplicate task submitted for run {}", runId);
+                                        continue;
+                                    }
+                                } else {
+                                    // Someone retrying this workflow. Perhaps some old workflow run died
+                                    populateCacheFromDb(runId);
+                                }
 
-                switch (msg.getMsgType()) {
-                    case TASK:
-                        if (!msg.isRetry()) {
-                            if (!recentlySubmittedTasks.contains(runId.getId())) {
-                                completedTasksCache.put(runId.getId(), new HashMap<String, TaskExecutionResult>());
-                                startedTasksCache.put(runId.getId(), new HashSet<String>());
-                                runsCache.put(runId.getId(), msg.getRunnableTask().get());
-                                recentlySubmittedTasks.add(runId.getId());
-                            } else {
-                                log.debug("Ignoring duplicate task submitted for run {}", runId);
+                                break;
+                            case TASKRESULT:
+                                if (runsCache.containsKey(runId.getId())) {
+                                    completedTasksCache.get(runId.getId()).put(msg.getTaskId().get().getId(),
+                                            msg.getTaskExecResult().get());
+                                    startedTasksCache.get(runId.getId()).remove(msg.getTaskId().get().getId());
+                                } else {
+                                    // A task result was received for run that I don't have
+                                    // Mostly some partition reassignment, or cancelled run.
+                                    // Or wait for someone to resubmit the job
+                                    log.warn(
+                                            "Got result, but no runId for {}, ignoring. Repartition due to failure or residual in Kafka to to late autocommit?",
+                                            runId.getId());
+                                    continue;
+                                }
+                                break;
+                            case CANCEL:
+                                try {
+                                    completeRunnableTask(log, workflowManager, runId,
+                                            workflowManager.getSerializer().deserialize(storageMgr.getRunnable(runId),
+                                                    RunnableTask.class),
+                                            -1);
+                                } catch (Exception ex) {
+                                    log.error("Could not find any data to cancel run: {}", runId);
+                                }
                                 continue;
-                            }
-                        } else {
-                            // Someone retrying this workflow. Perhaps some old workflow run died
-                            populateCacheFromDb(runId);
+                            default:
+                                log.error("Workflow worker received invalid message type for runId {}, {}", runId,
+                                        msg.getMsgType());
+                                continue;
                         }
-
-                        break;
-                    case TASKRESULT:
-                        if (runsCache.containsKey(runId.getId())) {
-                            completedTasksCache.get(runId.getId()).put(msg.getTaskId().get().getId(),
-                                    msg.getTaskExecResult().get());
-                            startedTasksCache.get(runId.getId()).remove(msg.getTaskId().get().getId());
-                        } else {
-                            // A task result was received for run that I don't have
-                            // Mostly some partition reassignment, or cancelled run.
-                            // Or wait for someone to resubmit the job
-                            log.warn(
-                                    "Got result, but no runId for {}, ignoring. Repartition due to failure or residual in Kafka to to late autocommit?",
-                                    runId.getId());
-                        }
-                        break;
-                    case CANCEL:
-                        try {
-                            completeRunnableTask(log, workflowManager, runId,
-                                    workflowManager.getSerializer().deserialize(storageMgr.getRunnable(runId),
-                                            RunnableTask.class),
-                                    -1);
-                        } catch (Exception ex) {
-                            log.error("Could not find any data to cancel run: {}", runId);
-                        }
-                        continue;
-                    default:
-                        log.error("Workflow worker received invalid message type for runId {}, {}", runId,
-                                msg.getMsgType());
-                        break;
+                        updateTasks(runId);
+                    }
                 }
-                updateTasks(runId);
-
                 if (autoCleanerHolder.shouldRun()) {
                     autoCleanerHolder.run(workflowManager.getAdmin());
                 }
             }
+
+        } catch (MongoInterruptedException | InterruptException e) {
+            // log.info("Interrupted runloop", e.getMessage());
+            try {
+                workflowConsumer.close();
+            } catch (Exception _e) {
+            }
+            Thread.currentThread().interrupt();
+        } catch (Throwable e) {
+            log.error("Error while running scheduler", e);
+        } finally {
+            state.set(WorkflowManagerState.State.CLOSED);
         }
 
     }

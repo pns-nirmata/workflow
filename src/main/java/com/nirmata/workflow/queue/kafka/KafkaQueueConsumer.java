@@ -152,7 +152,7 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
         this.idempotent = taskType.isIdempotent();
 
         this.consumer = new KafkaConsumer<String, byte[]>(
-                client.getConsumerProps(taskType.getType()));
+                client.getConsumerProps(client.getTaskWorkerConsumerGroup(taskType)));
         client.createTaskTopicIfNeeded(taskType);
         this.consumer.subscribe(Collections.singletonList(client.getTaskExecTopic(taskType)));
 
@@ -189,7 +189,7 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
     @Override
     public void close() {
         if (started.compareAndSet(true, false)) {
-            executorService.shutdownNow();
+            executorService.shutdown();
         }
     }
 
@@ -217,6 +217,7 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
                     // workflow worker side where DAG is executed and tasks in DAG are submitted for
                     // execution.
                 } catch (MongoInterruptedException | InterruptException | InterruptedException e) {
+                    // log.info("Interrupted runloop", e.getMessage());
                     Thread.currentThread().interrupt();
                     break;
                 } catch (Exception e) {
@@ -224,6 +225,10 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
                 }
             }
         } finally {
+            try {
+                this.consumer.close();
+            } catch (Exception _e) {
+            }
             log.info("Exiting runLoop");
             state.set(WorkflowManagerState.State.CLOSED);
         }
