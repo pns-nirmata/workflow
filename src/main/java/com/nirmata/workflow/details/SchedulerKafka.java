@@ -185,10 +185,12 @@ class SchedulerKafka implements Runnable {
                     autoCleanerHolder.run(workflowManager.getAdmin());
                 }
             }
-
+            log.debug("Closing workflow consumer");
+            workflowConsumer.close();
         } catch (MongoInterruptedException | InterruptException e) {
             // log.info("Interrupted runloop", e.getMessage());
             try {
+                log.debug("Closing workflow consumer");
                 workflowConsumer.close();
             } catch (Exception _e) {
             }

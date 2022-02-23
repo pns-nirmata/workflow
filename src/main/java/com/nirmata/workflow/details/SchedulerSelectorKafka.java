@@ -22,6 +22,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.io.Closeable;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class SchedulerSelectorKafka implements Closeable {
@@ -29,6 +32,7 @@ public class SchedulerSelectorKafka implements Closeable {
     private final WorkflowManagerKafkaImpl workflowManager;
     private final AutoCleanerHolder autoCleanerHolder;
     private final AtomicReference<SchedulerKafka> scheduler = new AtomicReference<>();
+    private final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
     volatile AtomicReference<CountDownLatch> debugLatch = new AtomicReference<>();
 
@@ -52,7 +56,7 @@ public class SchedulerSelectorKafka implements Closeable {
         log.info(workflowManager.getInstanceName() + " ready to act as scheduler");
         try {
             scheduler.set(new SchedulerKafka(workflowManager, autoCleanerHolder));
-            new Thread(scheduler.get()).start();
+            executorService.execute(scheduler.get());
         } finally {
             scheduler.set(null);
 
@@ -65,6 +69,15 @@ public class SchedulerSelectorKafka implements Closeable {
 
     @Override
     public void close() {
+        log.debug("Shutting down Scheduler service");
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(3, TimeUnit.SECONDS)) {
+                log.warn("Could not shutdown scheduler service cleanly");
+            }
+        } catch (Exception ex) {
+            log.debug("Exception waiting for scheduler shutdown", ex);
+        }
     }
 
     @VisibleForTesting
