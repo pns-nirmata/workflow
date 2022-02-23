@@ -153,7 +153,6 @@ class SchedulerKafka implements Runnable {
                                 if (runsCache.containsKey(runId.getId())) {
                                     completedTasksCache.get(runId.getId()).put(msg.getTaskId().get().getId(),
                                             msg.getTaskExecResult().get());
-                                    startedTasksCache.get(runId.getId()).remove(msg.getTaskId().get().getId());
                                 } else {
                                     // A task result was received for run that I don't have
                                     // Mostly some partition reassignment, or cancelled run.
@@ -257,6 +256,11 @@ class SchedulerKafka implements Runnable {
             RunnableTask completedRunnableTask = new RunnableTask(runnableTask.getTasks(), runnableTask.getTaskDags(),
                     runnableTask.getStartTimeUtc(), LocalDateTime.now(Clock.systemUTC()), parentRunId);
             byte[] json = workflowManager.getSerializer().serialize(completedRunnableTask);
+            // For child runids (sub-workflows), we need to maintain information till parent
+            // finishes
+            if (runnableTask.getParentRunId().isPresent()) {
+                runsCache.put(runId.getId(), completedRunnableTask);
+            }
             storageMgr.updateRun(runId, json);
         } catch (Exception e) {
             String message = "Could not write completed task data for run: " + runId;
@@ -305,13 +309,34 @@ class SchedulerKafka implements Runnable {
                         .allMatch(id -> taskIsComplete(runId, runnableTask.getTasks().get(id)));
                 if (allDependenciesAreComplete) {
                     queueTask(runId, task);
+                    clearCompletedChildRuns(runId, runnableTask);
                 }
             }
         });
 
         if (completedTasksForRun.equals(runnableTask.getTasks().keySet())) {
             completeRunnableTask(log, workflowManager, runId, runnableTask, -1);
+            // If a child workflow has completed, then, it might have unblocked
+            // parents also, so try updateTasks for that parent again
+            if (runnableTask.getParentRunId().isPresent()) {
+                updateTasks(runnableTask.getParentRunId().get());
+            }
         }
+    }
+
+    private void clearCompletedChildRuns(RunId runId, RunnableTask runnableTask) {
+        runnableTask.getTaskDags().forEach(entry -> {
+            for (TaskId dagTid : entry.getDependencies()) {
+                ExecutableTask task = runnableTask.getTasks().get(dagTid);
+                TaskExecutionResult result = completedTasksCache.get(runId.getId()).get(task.getTaskId().getId());
+                if (result != null) {
+                    if (result.getSubTaskRunId().isPresent()) {
+                        runsCache.remove(result.getSubTaskRunId().get().getId());
+                    }
+                }
+            }
+        });
+
     }
 
     private RunnableTask getRunnableTask(RunId runId) {
@@ -345,12 +370,12 @@ class SchedulerKafka implements Runnable {
                                 log.error("Error creating record for Run {} to task type {}", runId, task.getTaskType(),
                                         e);
                             } else {
-                                startedTasksCache.get(runId.getId()).add(task.getTaskId().getId());
                                 log.debug("RunId {} produced record to topic {}, partition [{}] @ offset {}", runId,
                                         m.topic(), m.partition(), m.offset());
                             }
                         }
                     });
+            startedTasksCache.get(runId.getId()).add(task.getTaskId().getId());
             log.debug("Sent task to queue: {}", task);
         } catch (Exception e) {
             String message = "Could not start task " + task;

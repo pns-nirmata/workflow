@@ -370,13 +370,16 @@ public class TestNormalKafka extends BaseForTests {
     }
 
     // TODO: BUG. Fix this functionality, some issue with sub-workflows
-    @Test(enabled = false)
+    @Test(enabled = true)
     public void testSubTask() throws Exception {
         TaskType taskType = new TaskType("test", "1", true);
         Task groupAChild = new Task(new TaskId(), taskType);
         Task groupAParent = new Task(new TaskId(), taskType, Lists.newArrayList(groupAChild));
 
         Task groupBTask = new Task(new TaskId(), taskType);
+
+        log.debug("gaParent = {}, gaChild = {}, gb = {}", groupAParent.getTaskId(), groupAChild.getTaskId(),
+                groupBTask.getTaskId());
 
         BlockingQueue<TaskId> tasks = Queues.newLinkedBlockingQueue();
         CountDownLatch latch = new CountDownLatch(1);
@@ -410,6 +413,7 @@ public class TestNormalKafka extends BaseForTests {
             Assert.assertNull(tasks.peek());
 
             latch.countDown();
+            sleepForKafka();
             polledTaskId = tasks.poll(timing.milliseconds(), TimeUnit.MILLISECONDS);
             Assert.assertEquals(polledTaskId, groupAChild.getTaskId());
         } finally {
@@ -492,26 +496,24 @@ public class TestNormalKafka extends BaseForTests {
             Task task = jsonSerializerMapper.get(jsonSerializerMapper.getMapper().readTree(json), Task.class);
             workflowManager.submitTask(task);
 
+            sleepForKafka();
+
             Set<TaskId> set1 = Sets.newHashSet(queue1.poll(timing.milliseconds(), TimeUnit.MILLISECONDS),
                     queue1.poll(timing.milliseconds(), TimeUnit.MILLISECONDS));
             Set<TaskId> set2 = Sets.newHashSet(queue2.poll(timing.milliseconds(), TimeUnit.MILLISECONDS),
                     queue2.poll(timing.milliseconds(), TimeUnit.MILLISECONDS));
-            Thread.sleep(5000); // sleepForKafka();
-            Set<TaskId> set3 = Sets.newHashSet(queue3.poll(timing.milliseconds(), TimeUnit.MILLISECONDS));
+            Set<TaskId> set3 = Sets.newHashSet(queue3.poll(timing.milliseconds(), TimeUnit.MILLISECONDS),
+                    queue3.poll(timing.milliseconds(), TimeUnit.MILLISECONDS));
 
             Assert.assertEquals(set1, Sets.newHashSet(new TaskId("task1"), new TaskId("task2")));
             Assert.assertEquals(set2, Sets.newHashSet(new TaskId("task3"), new TaskId("task4")));
-            // TODO: See the timing failure here, and assertnull for que3 below, for
-            // possible bug
-            // Assert.assertEquals(set3, Sets.newHashSet(new TaskId("task5"), new
-            // TaskId("task6")));
-            // Assert.assertEquals(set4, ));
+            Assert.assertEquals(set3, Sets.newHashSet(new TaskId("task5"), new TaskId("task6")));
 
             timing.sleepABit();
 
             Assert.assertNull(queue1.peek());
             Assert.assertNull(queue2.peek());
-            // Assert.assertNull(queue3.peek());
+            Assert.assertNull(queue3.peek());
         } finally {
             closeWorkflow(workflowManager);
         }
