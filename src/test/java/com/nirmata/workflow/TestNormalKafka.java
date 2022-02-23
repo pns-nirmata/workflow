@@ -413,7 +413,7 @@ public class TestNormalKafka extends BaseForTests {
             Assert.assertNull(tasks.peek());
 
             latch.countDown();
-            sleepForKafka();
+            Thread.sleep(3000);
             polledTaskId = tasks.poll(timing.milliseconds(), TimeUnit.MILLISECONDS);
             Assert.assertEquals(polledTaskId, groupAChild.getTaskId());
         } finally {

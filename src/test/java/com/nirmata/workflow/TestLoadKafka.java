@@ -20,7 +20,6 @@ import com.nirmata.workflow.models.TaskType;
 
 import java.lang.reflect.Method;
 
-import com.nirmata.workflow.details.KafkaHelper;
 import com.nirmata.workflow.details.WorkflowManagerKafkaImpl;
 
 import org.apache.curator.utils.CloseableUtils;
@@ -33,10 +32,7 @@ import org.testng.annotations.Test;
 
 public class TestLoadKafka extends TestLoadBase {
     private final Logger log = LoggerFactory.getLogger(getClass());
-    private static final String KAFKA_NS = "testkafkans";
-    private static final String KAFKA_NS_VER = "v1";
     private static final String TASKTYPE = "test";
-    private static final String TASKTYPE_VER = "1";
 
     @BeforeMethod
     public void setup(Method method) throws Exception {
@@ -45,25 +41,22 @@ public class TestLoadKafka extends TestLoadBase {
             throw new SkipException("Skipping test, kafka disabled");
         }
 
-        KafkaHelper helper = new KafkaHelper("localhost:9092", KAFKA_NS, KAFKA_NS_VER);
-        helper.deleteWorkflowTopic();
-        helper.deleteTaskTopic(new TaskType(TASKTYPE, TASKTYPE_VER, true));
-        Thread.sleep(5000);
+        initTopicOffsets(new String[] { "test", "type1", "type2", "type3" });
+        cleanDB();
+        log.info("====Starting test {}====", method.getName());
     }
 
     @AfterMethod
     public void teardown() throws Exception {
-        KafkaHelper helper = new KafkaHelper("localhost:9092", KAFKA_NS, KAFKA_NS_VER);
-        helper.deleteWorkflowTopic();
-        helper.deleteTaskTopic(new TaskType(TASKTYPE, TASKTYPE_VER, true));
+        initTopicOffsets(new String[] { "test", "type1", "type2", "type3" });
+        cleanDB();
     }
 
     @Test
     public void testLoadKafka1() throws Exception {
         TestTaskExecutor taskExecutor = new TestTaskExecutor(getTest1Tasks(), false, getTest1Delay());
-        WorkflowManager workflowManager = WorkflowManagerKafkaBuilder.builder()
+        WorkflowManager workflowManager = createWorkflowKafkaBuilder()
                 .addingTaskExecutor(taskExecutor, 10, new TaskType(TASKTYPE, "1", true))
-                .withKafka("localhost:9092", KAFKA_NS, KAFKA_NS_VER)
                 .build();
         try {
             super.testLoad1(workflowManager, taskExecutor);
