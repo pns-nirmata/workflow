@@ -36,10 +36,8 @@ public class SchedulerSelectorKafka implements Closeable {
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final WorkflowManagerKafkaImpl workflowManager;
     private final AutoCleanerHolder autoCleanerHolder;
-    private final AtomicReference<SchedulerKafka> scheduler = new AtomicReference<>();
+    private SchedulerKafka scheduler; // = new AtomicReference<>();
     private final ExecutorService executorService = Executors.newSingleThreadExecutor();
-
-    volatile AtomicReference<CountDownLatch> debugLatch = new AtomicReference<>();
 
     public SchedulerSelectorKafka(WorkflowManagerKafkaImpl workflowManager, QueueFactory queueFactory,
             AutoCleanerHolder autoCleanerHolder) {
@@ -48,8 +46,7 @@ public class SchedulerSelectorKafka implements Closeable {
     }
 
     public WorkflowManagerState.State getState() {
-        SchedulerKafka localScheduler = scheduler.get();
-        return (localScheduler != null) ? localScheduler.getState() : WorkflowManagerState.State.LATENT;
+        return (scheduler != null) ? scheduler.getState() : WorkflowManagerState.State.LATENT;
     }
 
     public void start() {
@@ -57,28 +54,23 @@ public class SchedulerSelectorKafka implements Closeable {
         // Only one or few workflow runners need to be present based on partitions of
         // the workflow topic. All extra consumers for a workflow queue exceeding
         // partitions will be idle till someone dies.
-
+        this.scheduler = new SchedulerKafka(workflowManager, autoCleanerHolder);
         log.info(workflowManager.getInstanceName() + " ready to act as scheduler");
-        try {
-            scheduler.set(new SchedulerKafka(workflowManager, autoCleanerHolder));
-            executorService.execute(scheduler.get());
-        } finally {
-
-            CountDownLatch latch = debugLatch.getAndSet(null);
-            if (latch != null) {
-                latch.countDown();
-            }
-        }
+        executorService.execute(scheduler);
     }
 
     @Override
     public void close() {
 
+        if (scheduler == null) {
+            return;
+        }
+
         try {
             log.debug("Shutting down Scheduler service");
-            scheduler.get().setExitRunLoop(true);
+            scheduler.setExitRunLoop(true);
             executorService.shutdown();
-            scheduler.set(null);
+            scheduler = null;
 
             if (!executorService.awaitTermination(10, TimeUnit.SECONDS)) {
                 log.warn("Could not shutdown scheduler service cleanly");

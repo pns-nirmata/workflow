@@ -61,13 +61,13 @@ class SchedulerKafka implements Runnable {
 
     private final Duration EXPIRY_MINS = Duration.ofMinutes(120);
     private final int MAX_SUBMITTED_CACHE_ITEMS = 10000;
-    private final long DEFAULT_KAFKA_POLL_MILLIS = 1000;
+    private final long DEFAULT_KAFKA_POLL_MILLIS = 3000;
 
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final WorkflowManagerKafkaImpl workflowManager;
     private final StorageManager storageMgr;
     private final AutoCleanerHolder autoCleanerHolder;
-    private final long pollSleepMillis;
+    private long pollSleepMillis = DEFAULT_KAFKA_POLL_MILLIS;
     private boolean exitRunLoop = false;
     private Map<TaskType, Producer<String, byte[]>> taskQueues = new HashMap<TaskType, Producer<String, byte[]>>();
     private final Consumer<String, byte[]> workflowConsumer;
@@ -120,6 +120,7 @@ class SchedulerKafka implements Runnable {
         // parallelize this easily too. Also, many other clients will also offer to act
         // as workflow workers. So parallel processing will happen anyways with multiple
         // partitions for workflows.
+        log.debug("Starting scheduler run loop");
         this.workflowConsumer.subscribe(Collections.singletonList(workflowManager.getKafkaConf().getWorkflowTopic()));
         try {
             // TODO PNS: Improve this piece of code. Club statements into separate functions
@@ -197,7 +198,7 @@ class SchedulerKafka implements Runnable {
                         autoCleanerHolder.run(workflowManager.getAdmin());
                     }
                 } catch (MongoInterruptedException | InterruptException e) {
-                    // log.info("Interrupted runloop", e.getMessage());
+                    log.info("Interrupted scheduler loop", e.getMessage());
                     Thread.currentThread().interrupt();
                 } catch (Exception e) {
                     log.error("Error while running scheduler", e);
