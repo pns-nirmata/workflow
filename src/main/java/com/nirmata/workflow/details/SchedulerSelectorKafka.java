@@ -28,8 +28,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-// TODO: Later, this class can be removed and the scheduler used directly,
-// especially since leader election is irrelevant in Kafka. Currently
+// TODO: Later, if the queue interface and related threading is not implemented
+// this class can be removed and the scheduler used directly.
+// Especially since leader election is irrelevant in Kafka. Right now,
 // this just manages the underlying Scheduler thread
 public class SchedulerSelectorKafka implements Closeable {
     private final Logger log = LoggerFactory.getLogger(getClass());
