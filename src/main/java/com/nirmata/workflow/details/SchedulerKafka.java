@@ -61,11 +61,14 @@ class SchedulerKafka implements Runnable {
 
     private final Duration EXPIRY_MINS = Duration.ofMinutes(120);
     private final int MAX_SUBMITTED_CACHE_ITEMS = 10000;
+    private final long DEFAULT_KAFKA_POLL_MILLIS = 1000;
 
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final WorkflowManagerKafkaImpl workflowManager;
     private final StorageManager storageMgr;
     private final AutoCleanerHolder autoCleanerHolder;
+    private final long pollSleepMillis;
+    private boolean exitRunLoop = false;
     private Map<TaskType, Producer<String, byte[]>> taskQueues = new HashMap<TaskType, Producer<String, byte[]>>();
     private final Consumer<String, byte[]> workflowConsumer;
 
@@ -94,11 +97,18 @@ class SchedulerKafka implements Runnable {
         this.workflowManager = workflowManager;
         this.storageMgr = workflowManager.getStorageManager();
         this.autoCleanerHolder = autoCleanerHolder;
+        this.pollSleepMillis = autoCleanerHolder.getRunPeriod().toMillis() < DEFAULT_KAFKA_POLL_MILLIS
+                ? autoCleanerHolder.getRunPeriod().toMillis()
+                : DEFAULT_KAFKA_POLL_MILLIS;
 
         workflowManager.getKafkaConf().createWorkflowTopicIfNeeded();
         this.workflowConsumer = new KafkaConsumer<String, byte[]>(
                 workflowManager.getKafkaConf()
                         .getConsumerProps(workflowManager.getKafkaConf().getWorkflowConsumerGroup()));
+    }
+
+    public void setExitRunLoop(boolean exitRunLoop) {
+        this.exitRunLoop = exitRunLoop;
     }
 
     WorkflowManagerState.State getState() {
@@ -113,91 +123,92 @@ class SchedulerKafka implements Runnable {
         this.workflowConsumer.subscribe(Collections.singletonList(workflowManager.getKafkaConf().getWorkflowTopic()));
         try {
             // TODO PNS: Improve this piece of code. Club statements into separate functions
-            while (!Thread.currentThread().isInterrupted()) {
-                state.set(WorkflowManagerState.State.SLEEPING);
-                ConsumerRecords<String, byte[]> records = workflowConsumer
-                        .poll(autoCleanerHolder.getRunPeriod().toMillis());
-                if (records.count() > 0) {
-                    state.set(WorkflowManagerState.State.PROCESSING);
+            while (!exitRunLoop && !Thread.currentThread().isInterrupted()) {
+                try {
+                    state.set(WorkflowManagerState.State.SLEEPING);
+                    ConsumerRecords<String, byte[]> records = workflowConsumer
+                            .poll(pollSleepMillis);
+                    if (records.count() > 0) {
+                        state.set(WorkflowManagerState.State.PROCESSING);
 
-                    // TODO: Later, incorporate fairness here. We can take ideas from Kubernetes
-                    // https://kubernetes.io/docs/concepts/cluster-administration/flow-control/
+                        // TODO: Later, incorporate fairness here. We can take ideas from Kubernetes
+                        // https://kubernetes.io/docs/concepts/cluster-administration/flow-control/
 
-                    for (ConsumerRecord<String, byte[]> record : records) {
-                        RunId runId = new RunId(record.key());
-                        WorkflowMessage msg = workflowManager.getSerializer().deserialize(record.value(),
-                                WorkflowMessage.class);
-                        log.debug("Deserialized message of type {} from partition {} (key: {}) at offset {}",
-                                msg.getMsgType(), record.partition(), record.key(), record.offset());
+                        for (ConsumerRecord<String, byte[]> record : records) {
+                            RunId runId = new RunId(record.key());
+                            WorkflowMessage msg = workflowManager.getSerializer().deserialize(record.value(),
+                                    WorkflowMessage.class);
+                            log.debug("Deserialized message of type {} from partition {} (key: {}) at offset {}",
+                                    msg.getMsgType(), record.partition(), record.key(), record.offset());
 
-                        switch (msg.getMsgType()) {
-                            case TASK:
-                                if (!msg.isRetry()) {
-                                    if (!recentlySubmittedTasks.contains(runId.getId())) {
-                                        completedTasksCache.put(runId.getId(),
-                                                new HashMap<String, TaskExecutionResult>());
-                                        startedTasksCache.put(runId.getId(), new HashSet<String>());
-                                        runsCache.put(runId.getId(), msg.getRunnableTask().get());
-                                        recentlySubmittedTasks.add(runId.getId());
+                            switch (msg.getMsgType()) {
+                                case TASK:
+                                    if (!msg.isRetry()) {
+                                        if (!recentlySubmittedTasks.contains(runId.getId())) {
+                                            completedTasksCache.put(runId.getId(),
+                                                    new HashMap<String, TaskExecutionResult>());
+                                            startedTasksCache.put(runId.getId(), new HashSet<String>());
+                                            runsCache.put(runId.getId(), msg.getRunnableTask().get());
+                                            recentlySubmittedTasks.add(runId.getId());
+                                        } else {
+                                            log.debug("Ignoring duplicate task submitted for run {}", runId);
+                                            continue;
+                                        }
                                     } else {
-                                        log.debug("Ignoring duplicate task submitted for run {}", runId);
+                                        // Someone retrying this workflow. Perhaps some old workflow run died
+                                        populateCacheFromDb(runId);
+                                    }
+
+                                    break;
+                                case TASKRESULT:
+                                    if (runsCache.containsKey(runId.getId())) {
+                                        completedTasksCache.get(runId.getId()).put(msg.getTaskId().get().getId(),
+                                                msg.getTaskExecResult().get());
+                                    } else {
+                                        // A task result was received for run that I don't have
+                                        // Mostly some partition reassignment, or cancelled run.
+                                        // Or wait for someone to resubmit the job
+                                        log.warn(
+                                                "Got result, but no runId for {}, ignoring. Repartition due to failure or residual in Kafka to to late autocommit?",
+                                                runId.getId());
                                         continue;
                                     }
-                                } else {
-                                    // Someone retrying this workflow. Perhaps some old workflow run died
-                                    populateCacheFromDb(runId);
-                                }
-
-                                break;
-                            case TASKRESULT:
-                                if (runsCache.containsKey(runId.getId())) {
-                                    completedTasksCache.get(runId.getId()).put(msg.getTaskId().get().getId(),
-                                            msg.getTaskExecResult().get());
-                                } else {
-                                    // A task result was received for run that I don't have
-                                    // Mostly some partition reassignment, or cancelled run.
-                                    // Or wait for someone to resubmit the job
-                                    log.warn(
-                                            "Got result, but no runId for {}, ignoring. Repartition due to failure or residual in Kafka to to late autocommit?",
-                                            runId.getId());
+                                    break;
+                                case CANCEL:
+                                    try {
+                                        completeRunnableTask(log, workflowManager, runId,
+                                                workflowManager.getSerializer().deserialize(
+                                                        storageMgr.getRunnable(runId),
+                                                        RunnableTask.class),
+                                                -1);
+                                    } catch (Exception ex) {
+                                        log.error("Could not find any data to cancel run: {}", runId);
+                                    }
                                     continue;
-                                }
-                                break;
-                            case CANCEL:
-                                try {
-                                    completeRunnableTask(log, workflowManager, runId,
-                                            workflowManager.getSerializer().deserialize(storageMgr.getRunnable(runId),
-                                                    RunnableTask.class),
-                                            -1);
-                                } catch (Exception ex) {
-                                    log.error("Could not find any data to cancel run: {}", runId);
-                                }
-                                continue;
-                            default:
-                                log.error("Workflow worker received invalid message type for runId {}, {}", runId,
-                                        msg.getMsgType());
-                                continue;
+                                default:
+                                    log.error("Workflow worker received invalid message type for runId {}, {}", runId,
+                                            msg.getMsgType());
+                                    continue;
+                            }
+                            updateTasks(runId);
                         }
-                        updateTasks(runId);
                     }
-                }
-                if (autoCleanerHolder.shouldRun()) {
-                    autoCleanerHolder.run(workflowManager.getAdmin());
+                    if (autoCleanerHolder.shouldRun()) {
+                        autoCleanerHolder.run(workflowManager.getAdmin());
+                    }
+                } catch (MongoInterruptedException | InterruptException e) {
+                    // log.info("Interrupted runloop", e.getMessage());
+                    Thread.currentThread().interrupt();
+                } catch (Exception e) {
+                    log.error("Error while running scheduler", e);
                 }
             }
+        } finally {
             log.debug("Closing workflow consumer");
-            workflowConsumer.close();
-        } catch (MongoInterruptedException | InterruptException e) {
-            // log.info("Interrupted runloop", e.getMessage());
             try {
-                log.debug("Closing workflow consumer");
                 workflowConsumer.close();
             } catch (Exception _e) {
             }
-            Thread.currentThread().interrupt();
-        } catch (Throwable e) {
-            log.error("Error while running scheduler", e);
-        } finally {
             state.set(WorkflowManagerState.State.CLOSED);
         }
 

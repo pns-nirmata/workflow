@@ -18,6 +18,7 @@ package com.nirmata.workflow.details;
 import com.google.common.annotations.VisibleForTesting;
 import com.nirmata.workflow.admin.WorkflowManagerState;
 import com.nirmata.workflow.queue.QueueFactory;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.io.Closeable;
@@ -27,6 +28,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+// TODO: Later, this class can be removed and the scheduler used directly,
+// especially since leader election is irrelevant in Kafka. Currently
+// this just manages the underlying Scheduler thread
 public class SchedulerSelectorKafka implements Closeable {
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final WorkflowManagerKafkaImpl workflowManager;
@@ -58,7 +62,6 @@ public class SchedulerSelectorKafka implements Closeable {
             scheduler.set(new SchedulerKafka(workflowManager, autoCleanerHolder));
             executorService.execute(scheduler.get());
         } finally {
-            scheduler.set(null);
 
             CountDownLatch latch = debugLatch.getAndSet(null);
             if (latch != null) {
@@ -69,10 +72,14 @@ public class SchedulerSelectorKafka implements Closeable {
 
     @Override
     public void close() {
-        log.debug("Shutting down Scheduler service");
-        executorService.shutdown();
+
         try {
-            if (!executorService.awaitTermination(3, TimeUnit.SECONDS)) {
+            log.debug("Shutting down Scheduler service");
+            scheduler.get().setExitRunLoop(true);
+            executorService.shutdown();
+            scheduler.set(null);
+
+            if (!executorService.awaitTermination(10, TimeUnit.SECONDS)) {
                 log.warn("Could not shutdown scheduler service cleanly");
             }
         } catch (Exception ex) {

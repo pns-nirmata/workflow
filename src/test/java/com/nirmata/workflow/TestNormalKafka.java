@@ -442,6 +442,7 @@ public class TestNormalKafka extends BaseForTests {
             workflowManager.submitTask(task);
 
             Assert.assertTrue(timing.awaitLatch(taskExecutor.getLatch()));
+            sleepForKafka();
 
             List<TaskId> flatSet = new ArrayList<TaskId>();
             for (Set<TaskId> set : taskExecutor.getChecker().getSets()) {

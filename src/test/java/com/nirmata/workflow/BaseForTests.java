@@ -93,7 +93,7 @@ public abstract class BaseForTests {
     // fails (or all queues need to be cleared)
     protected void sleepForKafka() {
         try {
-            Thread.sleep(1000);
+            Thread.sleep(2000);
         } catch (Exception e) {
             log.warn("Sleep interrupted", e);
         }
