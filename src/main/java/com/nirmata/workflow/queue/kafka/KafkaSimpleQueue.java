@@ -25,6 +25,12 @@ import com.nirmata.workflow.serialization.Serializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * The Kafka simple queue, only wraps the queue consumer. The producer side
+ * is directly handled by insertion in the appropriate Kafka topic. Kafka topic
+ * queues can be folded into a generic queue later. Additional comments in
+ * KafkaQueueConsumer
+ */
 public class KafkaSimpleQueue implements Queue {
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final KafkaQueueConsumer queue;

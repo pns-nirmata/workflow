@@ -90,10 +90,11 @@ public class WorkflowManagerKafkaBuilder {
     /**
      * Set the MongoDB client to use. In addition
      * to it, specify a namespace for the workflow and a version.
-     * The namespace
-     * and version combine to create a unique workflow. All instances using the same
-     * namespace and version
-     * are logically part of the same workflow.
+     * The namespace and version combine to create a unique workflow.
+     * All instances using the same namespace and version
+     * are logically part of the same workflow and their data is stored in
+     * the same collection. If not specified, data is not stored in Mongo
+     * and admin commands also give empty response
      *
      * @param mongoUri  MongoDB connection string
      * @param namespace workflow namespace
@@ -106,17 +107,9 @@ public class WorkflowManagerKafkaBuilder {
     }
 
     /**
-     * <strong>required</strong><br>
-     * Set the Kafka broker to use. In addition
-     * to it, specify a namespace for the workflow and a version.
-     * The namespace
-     * and version combine to create a unique workflow. All instances using the same
-     * namespace and version
-     * are logically part of the same workflow.
+     * Don't enable the workflow worker, typically used when you want to use
+     * workflow manager to submit tasks only, not to execute workflow DAGs
      *
-     * @param kafkaServer Kafka bootstrap servers (e.g. localhost:9092,xxx:1010)
-     * @param namespace   workflow namespace
-     * @param version     workflow version
      * @return this (for chaining)
      */
     public WorkflowManagerKafkaBuilder withoutWorkflowWorker() {
@@ -169,8 +162,7 @@ public class WorkflowManagerKafkaBuilder {
      * <em>optional</em><br>
      * <p>
      * Used in reporting. This will be the value recorded as tasks are executed. Via
-     * reporting,
-     * you can determine which instance has executed a given task.
+     * reporting, you can determine which instance has executed a given task.
      * </p>
      *
      * <p>
@@ -192,14 +184,12 @@ public class WorkflowManagerKafkaBuilder {
      */
     public WorkflowManager build() {
         return new WorkflowManagerKafkaImpl(kafkaHelper, storageManager, workflowWorkerEnabled, queueFactory,
-                instanceName, specs,
-                autoCleanerHolder, serializer,
-                taskRunnerService);
+                instanceName, specs, autoCleanerHolder, serializer, taskRunnerService);
     }
 
     /**
-     * <em>optional</em><br>
-     * Pluggable queue factory. Default uses Kafka for queuing.
+     * Currently, only uses Kafka for queuing.
+     * Send side of queue interface not implemented yet, so do not use
      *
      * @param queueFactory new queue factory
      * @return this (for chaining)
@@ -241,10 +231,9 @@ public class WorkflowManagerKafkaBuilder {
     /**
      * <em>optional</em><br>
      * By default, tasks are run in an internal executor service. Use this to
-     * specify a custom executor service
-     * for tasks. This executor does not add any async/concurrency benefit. It's
-     * purpose is to allow you to control
-     * which thread executes your tasks.
+     * specify a custom executor service for tasks. This executor does not add any
+     * async/concurrency benefit. It's purpose is to allow you to control which
+     * thread executes your tasks.
      *
      * @param taskRunnerService custom executor service
      * @return this (for chaining)

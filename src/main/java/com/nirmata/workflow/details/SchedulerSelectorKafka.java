@@ -22,16 +22,16 @@ import com.nirmata.workflow.queue.QueueFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.io.Closeable;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
-// TODO: Later, if the queue interface and related threading is not implemented
-// this class can be removed and the scheduler used directly.
-// Especially since leader election is irrelevant in Kafka. Right now,
-// this just manages the underlying Scheduler thread
+/**
+ * TODO: Later, if the queue interface and related threading is not implemented
+ * this class can be removed and the scheduler used directly. Especially since
+ * leader election is irrelevant in Kafka. Right now, this just manages the
+ * underlying Scheduler thread
+ */
 public class SchedulerSelectorKafka implements Closeable {
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final WorkflowManagerKafkaImpl workflowManager;
@@ -54,6 +54,10 @@ public class SchedulerSelectorKafka implements Closeable {
         // Only one or few workflow runners need to be present based on partitions of
         // the workflow topic. All extra consumers for a workflow queue exceeding
         // partitions will be idle till someone dies.
+        // Note: In Kafka 0.10.*, Kafka's determination of dead consumers is a bit
+        // finicky, might reassign partitions suddenly (say some poll or timeout
+        // criteria) so, best to have one workflow partition. In later versions of
+        // Kafka, we could use the cooperative sticky assignor.
         this.scheduler = new SchedulerKafka(workflowManager, autoCleanerHolder);
         log.info(workflowManager.getInstanceName() + " ready to act as scheduler");
         executorService.execute(scheduler);

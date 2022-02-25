@@ -55,11 +55,16 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * This is a central piece that accepts new task/workflow submissions, figures
+ * out next task to run considering dependencies in the task dag, sends tasks to
+ * executors, and also gets back task results from executors, to decide the next
+ * task to execute, or complete/cancel the workflow
+ */
 class SchedulerKafka implements Runnable {
     @VisibleForTesting
     static volatile AtomicInteger debugBadRunIdCount;
 
-    private final Duration EXPIRY_MINS = Duration.ofMinutes(120);
     private final int MAX_SUBMITTED_CACHE_ITEMS = 10000;
     private final long DEFAULT_KAFKA_POLL_MILLIS = 3000;
 
@@ -79,7 +84,7 @@ class SchedulerKafka implements Runnable {
     // Sufficiently large LRU cache to ensure that duplicate tasks (with same runId)
     // are not scheduled even if scheduled multiple times within a time interval
     // and even if MongoDB is not used as a store.
-    // The max size should be based on duplicate arrival times to be accomodated
+    // The max size is based on duplicate arrival times to be accomodated
     private final Set<String> recentlySubmittedTasks = Collections.newSetFromMap(new LinkedHashMap<String, Boolean>() {
         protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
             return size() > MAX_SUBMITTED_CACHE_ITEMS;
@@ -115,15 +120,24 @@ class SchedulerKafka implements Runnable {
         return state.get();
     }
 
+    /**
+     * The main scheduler outer run loop. Poll for messages, and depending upon
+     * message type, do the needful.
+     * 
+     * One workflow run thread in a client is good enough. Currently, the workflow
+     * worker partitions should be pinned to 1. With Kafka 0.10.0, there is some
+     * uncertainity with respect to partition reassignment to other consumers even
+     * with RangeAssignors suddenly in between. After we move over to later versions
+     * of Kafka, we can use CooperativeStickyAssignors. And then many clients can
+     * offer to act as workflow workers. So parallel processing will happen anyways
+     * with multiple partitions for workflows.
+     */
     public void run() {
-        // One workflow run thread in a client is good enough, but we can
-        // parallelize this easily too. Also, many other clients will also offer to act
-        // as workflow workers. So parallel processing will happen anyways with multiple
-        // partitions for workflows.
         log.debug("Starting scheduler run loop");
         this.workflowConsumer.subscribe(Collections.singletonList(workflowManager.getKafkaConf().getWorkflowTopic()));
         try {
-            // TODO PNS: Improve this piece of code. Club statements into separate functions
+            // TODO: Later, Improve this piece of code. Club statements into separate
+            // functions Ensure that break and continue logic is maintained.
             while (!exitRunLoop && !Thread.currentThread().isInterrupted()) {
                 try {
                     state.set(WorkflowManagerState.State.SLEEPING);
@@ -168,7 +182,7 @@ class SchedulerKafka implements Runnable {
                                     } else {
                                         // A task result was received for run that I don't have
                                         // Mostly some partition reassignment, or cancelled run.
-                                        // Or wait for someone to resubmit the job
+                                        // Wait for someone to resubmit the job
                                         log.warn(
                                                 "Got result, but no runId for {}, ignoring. Repartition due to failure or residual in Kafka to to late autocommit?",
                                                 runId.getId());
@@ -198,7 +212,7 @@ class SchedulerKafka implements Runnable {
                         autoCleanerHolder.run(workflowManager.getAdmin());
                     }
                 } catch (MongoInterruptedException | InterruptException e) {
-                    log.info("Interrupted scheduler loop", e.getMessage());
+                    log.debug("Interrupted scheduler loop", e.getMessage());
                     Thread.currentThread().interrupt();
                 } catch (Exception e) {
                     log.error("Error while running scheduler", e);
@@ -215,6 +229,11 @@ class SchedulerKafka implements Runnable {
 
     }
 
+    /**
+     * Fetch run related details from the DB and populate in-mem caches
+     * 
+     * @param runId
+     */
     private void populateCacheFromDb(RunId runId) {
         try {
             RunRecord runRec = storageMgr.getRunDetails(runId);
@@ -258,7 +277,7 @@ class SchedulerKafka implements Runnable {
         });
     }
 
-    void completeRunnableTask(Logger log, WorkflowManagerKafkaImpl workflowManager, RunId runId,
+    private void completeRunnableTask(Logger log, WorkflowManagerKafkaImpl workflowManager, RunId runId,
             RunnableTask runnableTask, int version) {
         runsCache.remove(runId.getId());
         startedTasksCache.remove(runId.getId());
@@ -270,8 +289,8 @@ class SchedulerKafka implements Runnable {
             RunnableTask completedRunnableTask = new RunnableTask(runnableTask.getTasks(), runnableTask.getTaskDags(),
                     runnableTask.getStartTimeUtc(), LocalDateTime.now(Clock.systemUTC()), parentRunId);
             byte[] json = workflowManager.getSerializer().serialize(completedRunnableTask);
-            // For child runids (sub-workflows), we need to maintain information till parent
-            // finishes
+            // For child runids (sub-workflows), we need to maintain information in cache
+            // till parent finishes
             if (runnableTask.getParentRunId().isPresent()) {
                 runsCache.put(runId.getId(), completedRunnableTask);
             }
@@ -283,6 +302,10 @@ class SchedulerKafka implements Runnable {
         }
     }
 
+    /**
+     * This method has the main DAG progress logic based on task dependencies,
+     * completed tasks, etc.
+     */
     private void updateTasks(RunId runId) {
         log.debug("Updating run: " + runId);
 
@@ -338,6 +361,10 @@ class SchedulerKafka implements Runnable {
         }
     }
 
+    /**
+     * A child run might have been maintained in memory in order to track parent
+     * state. Clear this if parent has finished.
+     */
     private void clearCompletedChildRuns(RunId runId, RunnableTask runnableTask) {
         runnableTask.getTaskDags().forEach(entry -> {
             for (TaskId dagTid : entry.getDependencies()) {
@@ -357,6 +384,9 @@ class SchedulerKafka implements Runnable {
         return runsCache.get(runId.getId());
     }
 
+    /**
+     * Send task to executors via Kafka.
+     */
     private void queueTask(RunId runId, ExecutableTask task) {
         try {
             // TODO: Later, Incorporate delayed tasks here somehow??.

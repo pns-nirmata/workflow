@@ -25,8 +25,12 @@ import org.slf4j.LoggerFactory;
 import java.nio.charset.Charset;
 import java.time.Duration;
 
-// Common base to ensure identical inputs for comparing load test results
-// across Zookeeper and Kafka implementations.
+/**
+ * Common base to ensure identical inputs for comparing load test results
+ * across Zookeeper and Kafka implementations.
+ * Note: Scaling in Kafka needs more partitions in task type topics depending
+ * upon scale
+ */
 public abstract class TestLoadBase extends BaseForTests {
     protected final Timing timing = new Timing();
     private final Logger log = LoggerFactory.getLogger(getClass());

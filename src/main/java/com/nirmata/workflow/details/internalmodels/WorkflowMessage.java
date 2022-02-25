@@ -21,6 +21,12 @@ import java.util.Optional;
 import com.nirmata.workflow.models.TaskExecutionResult;
 import com.nirmata.workflow.models.TaskId;
 
+/**
+ * A workflow message to the workflow scheduler. All types of messages are
+ * multiplexed in the same message, and the type field determines which
+ * sub-message it is. Either a new workflow submission, or a task result,
+ * cancel, or retry of workflow.
+ */
 public class WorkflowMessage implements Serializable {
 
     public enum MsgType {

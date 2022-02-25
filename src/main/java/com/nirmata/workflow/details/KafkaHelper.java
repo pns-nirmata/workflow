@@ -25,6 +25,10 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Holds various kinds of Kafka related information, and utility
+ * methods to form group and topic names, producer, consumer properties
+ */
 public class KafkaHelper {
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final static String WORKFLOW_TOPIC = "workflowtopic";
@@ -39,6 +43,7 @@ public class KafkaHelper {
     // Allow configuring these from outside if needed. In production
     // the needed number of partitions will already be available, or reconfigured
     // in Kafka directly from outside. Useful mainly in testing.
+    // (Works only in new kafka versions e.g. 3.*)
     final int workflowTopicPartitions;
     final int taskTypeTopicPartitions;
     final short replicationFactor;
@@ -57,6 +62,7 @@ public class KafkaHelper {
         this.replicationFactor = replicationFactor;
     }
 
+    // Kafka topic strings need to follow naming restrictions
     private String cleanForKafka(String str) {
         return str.replaceAll("[^a-zA-Z0-9_\\.]", "_");
     }

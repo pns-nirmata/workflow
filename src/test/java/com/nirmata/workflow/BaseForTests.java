@@ -99,6 +99,10 @@ public abstract class BaseForTests {
         }
     }
 
+    /**
+     * Since tests run one after the other, and can die in between, just ensure that
+     * the workflow as well as task type topic queue offsets are reset to the end
+     */
     protected void initTopicOffsets(String[] taskTypeIds) {
         KafkaHelper kh = new KafkaHelper(KAFKA_ADDR, NAMESPACE, NAMESPACE_VER);
         log.debug("Init topic offsets");

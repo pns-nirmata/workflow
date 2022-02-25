@@ -193,6 +193,10 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
         }
     }
 
+    /**
+     * The main consumer loop that polls kafka topic partition for a type, and calls
+     * the executor
+     */
     private void runLoop() {
         log.info("Starting runLoop");
 

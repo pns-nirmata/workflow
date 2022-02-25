@@ -4,7 +4,7 @@
 
     <groupId>com.nirmata.workflow</groupId>
     <artifactId>nirmata-workflow</artifactId>
-    <version>0.10.5-SNAPSHOT</version>
+    <version>0.10.0</version>
 
     <properties>
         <jdk-version>1.8</jdk-version>
@@ -63,7 +63,7 @@
         <snapshotRepository>
             <id>sonatype-nexus-snapshots</id>
             <name>Sonatype Nexus Snapshots</name>
-            <url>https://oss.sonatype.org/content/repositories/snapshots/</url>        
+            <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
         </snapshotRepository>
     </distributionManagement>
 

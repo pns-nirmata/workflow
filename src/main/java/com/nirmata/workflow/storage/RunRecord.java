@@ -18,6 +18,11 @@ package com.nirmata.workflow.storage;
 
 import java.util.Map;
 
+/**
+ * This contains all the database information corresponding to a run. The
+ * runnable with task DAG, task progress and execution results. This is
+ * communicated to external callers who do necessary deserialization
+ */
 public class RunRecord {
     private final byte[] runnableData;
     private final Map<String, byte[]> startedTasks;

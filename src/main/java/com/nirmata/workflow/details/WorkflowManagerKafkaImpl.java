@@ -67,6 +67,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+/**
+ * Implementation of the covering WorkflowManager interface using Kafka
+ */
 public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin {
 
     private final Logger log = LoggerFactory.getLogger(getClass());
@@ -462,6 +465,7 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
         }
         byte[] bytes = serializer.serialize(new WorkflowMessage(executableTask.getTaskId(), result));
         try {
+            // Send task result to scheduler to further advance the workflow
             sendWorkflowToKafka(executableTask.getRunId(), bytes);
             storageMgr.saveTaskResult(executableTask.getRunId(), executableTask.getTaskId(),
                     serializer.serialize(result));
@@ -472,6 +476,10 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
         }
     }
 
+    /**
+     * Create multiple queue consumers to read from a particular topictype partition
+     * and run executors on the message received.
+     */
     private List<QueueConsumer> makeTaskConsumers(QueueFactory queueFactory, List<TaskExecutorSpec> specs) {
         ImmutableList.Builder<QueueConsumer> builder = ImmutableList.builder();
         specs.forEach(spec -> IntStream.range(0, spec.getQty()).forEach(i -> {
