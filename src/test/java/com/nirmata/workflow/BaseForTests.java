@@ -137,6 +137,9 @@ public abstract class BaseForTests {
     }
 
     protected void cleanDB() {
+        if (!useMongo) {
+            return;
+        }
         KafkaHelper kh = new KafkaHelper(KAFKA_ADDR, NAMESPACE, NAMESPACE_VER);
 
         // Clean DB

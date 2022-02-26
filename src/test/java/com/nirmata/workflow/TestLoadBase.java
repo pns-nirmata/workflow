@@ -34,8 +34,8 @@ import java.time.Duration;
 public abstract class TestLoadBase extends BaseForTests {
     protected final Timing timing = new Timing();
     private final Logger log = LoggerFactory.getLogger(getClass());
-    private final int ITERS_TEST_1 = 1000;
-    private final int ITERS_DELAY_MS = 100;
+    private final int ITERS_TEST_1 = 100;
+    private final int ITERS_DELAY_MS = 1000;
 
     protected int getTest1Tasks() {
         return ITERS_TEST_1 * 6;

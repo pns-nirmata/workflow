@@ -36,9 +36,10 @@ public class KafkaSimpleQueue implements Queue {
     private final KafkaQueueConsumer queue;
     private final Serializer serializer;
 
-    KafkaSimpleQueue(TaskRunner taskRunner, Serializer serializer, KafkaHelper kafkaHlpr, TaskType taskType) {
+    KafkaSimpleQueue(TaskRunner taskRunner, Serializer serializer, KafkaHelper kafkaHlpr, TaskType taskType,
+            int runnerQty) {
         this.serializer = Preconditions.checkNotNull(serializer, "serializer cannot be null");
-        queue = new KafkaQueueConsumer(kafkaHlpr, taskRunner, serializer, taskType);
+        queue = new KafkaQueueConsumer(kafkaHlpr, taskRunner, serializer, taskType, runnerQty);
     }
 
     @Override

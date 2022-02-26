@@ -37,7 +37,6 @@ import org.apache.kafka.common.errors.InterruptException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.io.Closeable;
-import java.time.Duration;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -45,6 +44,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -62,6 +62,7 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
 
     // PNS TODO: Curator ThreadUtils dependency to be changed later
     private final ExecutorService executorService = ThreadUtils.newSingleThreadExecutor("KafkaQueueConsumer");
+    private final ExecutorService executorWorkerService;
     private final AtomicBoolean started = new AtomicBoolean(false);
     private final NodeFunc nodeFunc;
     private final KeyFunc keyFunc;
@@ -144,12 +145,14 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
         return epoch - sortTime;
     }
 
-    KafkaQueueConsumer(KafkaHelper client, TaskRunner taskRunner, Serializer serializer, TaskType taskType) {
+    KafkaQueueConsumer(KafkaHelper client, TaskRunner taskRunner, Serializer serializer, TaskType taskType,
+            int executorWorkers) {
         this.client = client;
         this.taskRunner = taskRunner;
         this.serializer = serializer;
         this.taskType = taskType;
         this.idempotent = taskType.isIdempotent();
+        this.executorWorkerService = ThreadUtils.newFixedThreadPool(executorWorkers, "KafkaQueueConsumerWorker");
 
         this.consumer = new KafkaConsumer<String, byte[]>(
                 client.getConsumerProps(client.getTaskWorkerConsumerGroup(taskType)));
@@ -190,6 +193,7 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
     public void close() {
         if (started.compareAndSet(true, false)) {
             executorService.shutdown();
+            executorWorkerService.shutdown();
         }
     }
 
@@ -213,14 +217,21 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
                     }
 
                     for (ConsumerRecord<String, byte[]> record : records) {
-                        ExecutableTask task = serializer.deserialize(record.value(), ExecutableTask.class);
-                        processNode(task);
+                        ExecutableTask task;
+                        try {
+                            task = serializer.deserialize(record.value(), ExecutableTask.class);
+                        } catch (Exception ex) {
+                            log.error("Could not deserialize task message, {}, skipping", record.toString(), ex);
+                            continue;
+                        }
+                        submitToWorkerGently(task);
+                        // processNode(task);
                     }
                     // TODO: Later. Handle priority and delays to extent possible. See equivalent
                     // Zkp implementation. More important is handling fairness. Handle this on the
                     // workflow worker side where DAG is executed and tasks in DAG are submitted for
                     // execution.
-                } catch (MongoInterruptedException | InterruptException | InterruptedException e) {
+                } catch (MongoInterruptedException | InterruptException e) {
                     // log.info("Interrupted runloop", e.getMessage());
                     Thread.currentThread().interrupt();
                     break;
@@ -235,6 +246,27 @@ public class KafkaQueueConsumer implements Closeable, QueueConsumer {
             }
             log.info("Exiting runLoop");
             state.set(WorkflowManagerState.State.CLOSED);
+        }
+    }
+
+    private void submitToWorkerGently(ExecutableTask task) {
+        boolean couldSubmit = false;
+        // Submit to executor service with backpressure
+        for (int i = 0; !couldSubmit; i++) {
+            try {
+                executorWorkerService.submit(() -> taskRunner.executeTask(task));
+                couldSubmit = true;
+            } catch (RejectedExecutionException ex) {
+                try {
+                    Thread.sleep(1000);
+                    if (i % 10 == 0) {
+                        log.warn("Slow executors, and more work pumped in");
+                    }
+                } catch (InterruptedException _ex) {
+                }
+            } catch (Exception ex) {
+                log.error("Error submitting task to executor", ex);
+            }
         }
     }
 

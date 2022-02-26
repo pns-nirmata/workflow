@@ -22,4 +22,13 @@ public interface QueueFactory {
     Queue createQueue(WorkflowManager workflowManager, TaskType taskType);
 
     QueueConsumer createQueueConsumer(WorkflowManager workflowManager, TaskRunner taskRunner, TaskType taskType);
+
+    /**
+     * This can return a queue consumer that internally creates multiple task
+     * executors. Else, by default, each queue consumer has only one runner
+     */
+    default QueueConsumer createQueueConsumer(WorkflowManager workflowManager, TaskRunner taskRunner, TaskType taskType,
+            int qty) {
+        return this.createQueueConsumer(workflowManager, taskRunner, taskType);
+    }
 }

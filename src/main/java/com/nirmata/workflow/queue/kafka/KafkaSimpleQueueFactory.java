@@ -27,19 +27,28 @@ public class KafkaSimpleQueueFactory implements QueueFactory {
 
     @Override
     public Queue createQueue(WorkflowManager workflowManager, TaskType taskType) {
-        return internalCreateQueue((WorkflowManagerKafkaImpl) workflowManager, taskType, null);
+        return internalCreateQueue((WorkflowManagerKafkaImpl) workflowManager, taskType, null, 1);
     }
 
     @Override
     public QueueConsumer createQueueConsumer(WorkflowManager workflowManager, TaskRunner taskRunner,
             TaskType taskType) {
-        KafkaSimpleQueue queue = internalCreateQueue((WorkflowManagerKafkaImpl) workflowManager, taskType, taskRunner);
+        KafkaSimpleQueue queue = internalCreateQueue((WorkflowManagerKafkaImpl) workflowManager, taskType, taskRunner,
+                1);
+        return queue.getQueue();
+    }
+
+    @Override
+    public QueueConsumer createQueueConsumer(WorkflowManager workflowManager, TaskRunner taskRunner,
+            TaskType taskType, int qty) {
+        KafkaSimpleQueue queue = internalCreateQueue((WorkflowManagerKafkaImpl) workflowManager, taskType, taskRunner,
+                qty);
         return queue.getQueue();
     }
 
     private KafkaSimpleQueue internalCreateQueue(WorkflowManagerKafkaImpl workflowManager, TaskType taskType,
-            TaskRunner taskRunner) {
+            TaskRunner taskRunner, int qty) {
         return new KafkaSimpleQueue(taskRunner, workflowManager.getSerializer(), workflowManager.getKafkaConf(),
-                taskType);
+                taskType, qty);
     }
 }

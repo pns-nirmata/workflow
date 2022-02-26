@@ -115,7 +115,7 @@ public class TestNormalKafka extends BaseForTests {
             sleepForKafka();
 
             RunInfo runInfo = workflowManager.getAdmin().getRunInfo(runId);
-            Assert.assertTrue(runInfo.isComplete());
+            Assert.assertTrue(!useMongo || runInfo.isComplete());
 
             List<Set<TaskId>> sets = taskExecutor.getChecker().getSets();
             List<Set<TaskId>> expectedSets = Arrays.<Set<TaskId>>asList(
@@ -323,11 +323,13 @@ public class TestNormalKafka extends BaseForTests {
             sleepForKafka();
 
             Optional<TaskExecutionResult> taskData = workflowManager.getTaskExecutionResult(runId, taskId);
-            Assert.assertTrue(taskData.isPresent());
+            Assert.assertTrue(!useMongo || taskData.isPresent());
             Map<String, String> expected = Maps.newHashMap();
             expected.put("one", "1");
             expected.put("two", "2");
-            Assert.assertEquals(taskData.get().getResultData(), expected);
+            if (useMongo) {
+                Assert.assertEquals(taskData.get().getResultData(), expected);
+            }
         } finally {
             closeWorkflow(workflowManager);
         }
@@ -359,9 +361,9 @@ public class TestNormalKafka extends BaseForTests {
             timing.sleepABit();
 
             List<TaskInfo> tasks = workflowManager.getAdmin().getTaskInfo(runId);
-            Assert.assertTrue(tasks.size() == 1);
-            Assert.assertTrue(tasks.get(0).hasStarted());
-            Assert.assertTrue(tasks.get(0).getProgress() == 50);
+            Assert.assertTrue(!useMongo || tasks.size() == 1);
+            Assert.assertTrue(!useMongo || tasks.get(0).hasStarted());
+            Assert.assertTrue(!useMongo || tasks.get(0).getProgress() == 50);
             latch.countDown();
         } finally {
             sleepForKafka();

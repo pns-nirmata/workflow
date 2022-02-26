@@ -482,11 +482,17 @@ public class WorkflowManagerKafkaImpl implements WorkflowManager, WorkflowAdmin 
      */
     private List<QueueConsumer> makeTaskConsumers(QueueFactory queueFactory, List<TaskExecutorSpec> specs) {
         ImmutableList.Builder<QueueConsumer> builder = ImmutableList.builder();
-        specs.forEach(spec -> IntStream.range(0, spec.getQty()).forEach(i -> {
+        // When we have sufficient partitions so that each thread can have its
+        // own consumer, we change the (0, 1) to (0, spec.getQty()), and pass 1
+        // (or nothing) in the createConsumer instead. One partition for all task
+        // executors might become a bottleneck when the task execution itself is
+        // relatively as fast as the part that fetches from the queue and derserializes
+        // message
+        specs.forEach(spec -> IntStream.range(0, 1).forEach(i -> {
 
             QueueConsumer consumer = queueFactory.createQueueConsumer(this,
                     t -> executeTask(spec.getTaskExecutor(), t),
-                    spec.getTaskType());
+                    spec.getTaskType(), spec.getQty());
             builder.add(consumer);
         }));
 

@@ -133,12 +133,17 @@ class SchedulerKafka implements Runnable {
      * with multiple partitions for workflows.
      */
     public void run() {
+        int approxLoopCnt = 0;
         log.debug("Starting scheduler run loop");
         this.workflowConsumer.subscribe(Collections.singletonList(workflowManager.getKafkaConf().getWorkflowTopic()));
         try {
             // TODO: Later, Improve this piece of code. Club statements into separate
             // functions Ensure that break and continue logic is maintained.
             while (!exitRunLoop && !Thread.currentThread().isInterrupted()) {
+                if (runsCache.size() > MAX_SUBMITTED_CACHE_ITEMS / 2 && approxLoopCnt % 100 == 0) {
+                    log.warn("Active run size increased to {}, more work than what can be consumed", runsCache.size());
+                }
+                approxLoopCnt++;
                 try {
                     state.set(WorkflowManagerState.State.SLEEPING);
                     ConsumerRecords<String, byte[]> records = workflowConsumer
@@ -151,8 +156,14 @@ class SchedulerKafka implements Runnable {
 
                         for (ConsumerRecord<String, byte[]> record : records) {
                             RunId runId = new RunId(record.key());
-                            WorkflowMessage msg = workflowManager.getSerializer().deserialize(record.value(),
-                                    WorkflowMessage.class);
+                            WorkflowMessage msg;
+                            try {
+                                msg = workflowManager.getSerializer().deserialize(record.value(),
+                                        WorkflowMessage.class);
+                            } catch (Exception ex) {
+                                log.error("Could not deserialize workflow message, skipping", ex);
+                                continue;
+                            }
                             log.debug("Deserialized message of type {} from partition {} (key: {}) at offset {}",
                                     msg.getMsgType(), record.partition(), record.key(), record.offset());
 
@@ -190,14 +201,15 @@ class SchedulerKafka implements Runnable {
                                     }
                                     break;
                                 case CANCEL:
+                                    byte[] runnableBytes = storageMgr.getRunnable(runId);
                                     try {
                                         completeRunnableTask(log, workflowManager, runId,
-                                                workflowManager.getSerializer().deserialize(
-                                                        storageMgr.getRunnable(runId),
-                                                        RunnableTask.class),
+                                                runnableBytes == null ? null
+                                                        : workflowManager.getSerializer().deserialize(
+                                                                runnableBytes, RunnableTask.class),
                                                 -1);
                                     } catch (Exception ex) {
-                                        log.error("Could not find any data to cancel run: {}", runId);
+                                        log.error("Could not find any data to cancel run: {}", runId, ex);
                                     }
                                     continue;
                                 default:
@@ -284,6 +296,10 @@ class SchedulerKafka implements Runnable {
         completedTasksCache.remove(runId.getId());
 
         log.info("Completing run: {}", runId);
+        if (runnableTask == null) {
+            return;
+        }
+
         try {
             RunId parentRunId = runnableTask.getParentRunId().orElse(null);
             RunnableTask completedRunnableTask = new RunnableTask(runnableTask.getTasks(), runnableTask.getTaskDags(),
